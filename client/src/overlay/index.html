@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:8787 https://api.open-meteo.com https://geocoding-api.open-meteo.com; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>Brandon Overlay</title>
+    <style>html, body, #root { background: transparent; }</style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./overlay.tsx"></script>
+  </body>
+</html>

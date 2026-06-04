@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="LiveCaption.vcxproj" Id="f15ea080-ceae-4330-9cd4-84b394657408" />
+</Solution>

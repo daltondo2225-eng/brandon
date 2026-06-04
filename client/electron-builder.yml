@@ -1,0 +1,42 @@
+appId: com.brandon.app
+productName: Brandon
+copyright: Copyright (c) 2026 Brandon
+asar: true
+# electron-builder can't auto-detect the Electron version when it's hoisted to
+# the workspace root, so we pin it explicitly here. Keep in sync with the
+# `electron` devDependency in client/package.json.
+electronVersion: "35.0.0"
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - "out/**/*"
+  - "package.json"
+  - "!**/{.eslintrc,.gitignore,.prettierrc}"
+
+extraResources:
+  - from: resources/bin
+    to: bin
+    filter: ["**/*"]
+  - from: resources/icons
+    to: icons
+    filter: ["**/*"]
+  - from: resources/server
+    to: server
+    filter: ["**/*"]
+
+win:
+  icon: resources/icons/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Brandon
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

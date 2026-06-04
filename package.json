@@ -1,0 +1,24 @@
+{
+  "name": "brandon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Brandon - live interview AI assistant",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace server run dev",
+    "dev:client": "npm --workspace client run dev",
+    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "build": "npm --workspaces --if-present run build",
+    "package:server": "node scripts/package-server.mjs",
+    "dist": "npm run package:server && npm --workspace client run dist",
+    "publish:sidecar": "powershell -ExecutionPolicy Bypass -File ./sidecar/publish.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "esbuild": "^0.24.0"
+  }
+}
