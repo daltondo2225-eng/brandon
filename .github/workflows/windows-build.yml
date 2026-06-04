@@ -1,0 +1,100 @@
+name: Windows build
+
+# Builds the full Brandon Windows installer (.exe) on GitHub's Windows runners,
+# since Tauri can't cross-compile from macOS/Linux. Produces:
+#   - the .NET captions sidecar (BrandonCaptions.exe)
+#   - the standalone Node server (brandon-server.exe, via SEA)
+#   - the NSIS installer that bundles them
+#
+# Run it: push to main, push a v* tag, or trigger manually (Actions tab → Run workflow).
+# Download: the finished installer appears under the run's "Artifacts", and is also
+# attached to a GitHub Release when you push a tag like v0.1.0.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write # needed to attach the installer to a Release on tag pushes
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            client-tauri/src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('client-tauri/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Install npm dependencies
+        run: npm install
+
+      # 1. Captions sidecar (.NET) → straight into the Tauri resources/bin dir
+      - name: Build captions sidecar
+        shell: pwsh
+        run: |
+          dotnet publish sidecar/BrandonCaptions -c Release -r win-x64 --self-contained `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o client-tauri/src-tauri/bin --nologo
+          if (-not (Test-Path client-tauri/src-tauri/bin/BrandonCaptions.exe)) {
+            throw "BrandonCaptions.exe was not produced"
+          }
+
+      # 2. Standalone server (Node SEA) → resources/bin/brandon-server.exe
+      - name: Build standalone server (SEA)
+        run: npm run build:server:tauri
+
+      # 3. Tauri app + NSIS installer (only the nsis bundle on Windows)
+      - name: Build Tauri installer
+        working-directory: client-tauri
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Collect installer
+        shell: pwsh
+        run: |
+          $out = "dist-installer"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $nsis = Get-ChildItem -Recurse -Path client-tauri/src-tauri/target/release/bundle/nsis -Filter *.exe
+          if (-not $nsis) { throw "No NSIS installer found" }
+          $nsis | ForEach-Object { Copy-Item $_.FullName $out }
+          Get-ChildItem $out | Format-Table Name, Length -AutoSize
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: brandon-windows-installer
+          path: dist-installer/*.exe
+          if-no-files-found: error
+
+      # On a version tag (v0.1.0, etc.), also publish a GitHub Release with the installer.
+      - name: Attach to Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-installer/*.exe
