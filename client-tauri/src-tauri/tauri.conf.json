@@ -58,8 +58,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "bin": "bin",
-      "server": "server"
+      "bin": "bin"
     },
     "copyright": "Copyright (c) 2026 Brandon",
     "category": "Productivity",
