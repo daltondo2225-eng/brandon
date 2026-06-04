@@ -66,8 +66,9 @@ jobs:
             throw "BrandonCaptions.exe was not produced"
           }
 
-      # 2. Standalone server (Node SEA) → resources/bin/brandon-server.exe
-      - name: Build standalone server (SEA)
+      # 2. Bundle the server (server.mjs) + the runner's node.exe → resources/bin
+      #    so the installed app needs no separately-installed Node.
+      - name: Bundle server + node runtime
         run: npm run build:server:tauri
 
       # 3. Tauri app + NSIS installer (only the nsis bundle on Windows)

@@ -204,32 +204,33 @@ pub fn start(app: &AppHandle) -> Result<ServerConfig, String> {
     let port = free_loopback_port().map_err(|e| e.to_string())?;
     let base_url = format!("http://127.0.0.1:{port}");
 
-    // Prefer the standalone server binary (built by scripts/build-server-sea.mjs)
-    // so the target machine needs NO Node on PATH — this is the Windows shipping
-    // path. Fall back to `node dist/index.mjs` (the older packaged layout / dev
-    // machines that do have Node), so neither path being present is fatal.
-    let exe_name = if cfg!(target_os = "windows") {
-        "brandon-server.exe"
-    } else {
-        "brandon-server"
-    };
-    let standalone = resource_dir.join("bin").join(exe_name);
-    let server_entry = resource_dir.join("server").join("dist").join("index.mjs");
+    // The server is shipped as a bundled server.mjs run by a bundled node
+    // runtime (scripts/build-server-bundle.mjs --with-node), so the target
+    // machine needs NO separately-installed Node. We prefer that bundled node,
+    // and fall back to a `node` on PATH (dev machines / older layout) so neither
+    // being present is fatal.
+    let bin = resource_dir.join("bin");
+    let node_name = if cfg!(target_os = "windows") { "node.exe" } else { "node" };
+    let bundled_node = bin.join(node_name);
+    let server_mjs = bin.join("server.mjs");
+    // Backward-compat with the older esbuild layout (resources/server/dist).
+    let legacy_entry = resource_dir.join("server").join("dist").join("index.mjs");
 
-    let mut cmd = if standalone.exists() {
-        let mut c = Command::new(&standalone);
-        c.current_dir(resource_dir.join("bin"));
+    let mut cmd = if server_mjs.exists() {
+        // Bundled runtime if present, else node on PATH — both run server.mjs.
+        let mut c = Command::new(if bundled_node.exists() { bundled_node.clone() } else { node_name.into() });
+        c.arg(&server_mjs).current_dir(&bin);
         c
-    } else if server_entry.exists() {
+    } else if legacy_entry.exists() {
         let mut c = Command::new("node");
-        c.arg(&server_entry).current_dir(resource_dir.join("server"));
+        c.arg(&legacy_entry).current_dir(resource_dir.join("server"));
         c
     } else {
         return Err(format!(
-            "No server found. Expected standalone {} or {}. Run \
-             `npm run build:server:tauri` (standalone) or `npm run package:server:tauri`.",
-            standalone.display(),
-            server_entry.display()
+            "No server found. Expected {} or {}. Run \
+             `npm run build:server:tauri` before bundling.",
+            server_mjs.display(),
+            legacy_entry.display()
         ));
     };
 
