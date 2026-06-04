@@ -22,7 +22,7 @@ import esbuild from "esbuild";
 import { execFileSync, execSync } from "node:child_process";
 import {
   chmodSync, copyFileSync, mkdirSync, mkdtempSync,
-  rmSync, statSync, writeFileSync,
+  readFileSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -33,6 +33,35 @@ const ROOT = resolve(__dirname, "..");
 const SERVER_SRC = resolve(ROOT, "server");
 const IS_WIN = process.platform === "win32";
 const EXE = IS_WIN ? "brandon-server.exe" : "brandon-server";
+
+/**
+ * Remove the Authenticode signature from a Windows PE (.exe) so postject can
+ * inject the SEA blob (a signed binary makes postject fail to find its
+ * sentinel). Pure JS, no Windows SDK: the signature is described by the PE
+ * optional header's "Certificate Table" data directory (index 4) — an 8-byte
+ * {offset,size} entry pointing at a blob appended to the file. We zero that
+ * entry and truncate the file to drop the blob.
+ */
+function stripPeSignature(file) {
+  const buf = readFileSync(file);
+  if (buf.readUInt16LE(0) !== 0x5a4d) return; // not "MZ" — not a PE, skip
+  const peOff = buf.readUInt32LE(0x3c); // offset to "PE\0\0"
+  if (buf.readUInt32LE(peOff) !== 0x00004550) return; // not a PE signature
+  const optHeaderOff = peOff + 24;
+  const magic = buf.readUInt16LE(optHeaderOff);
+  // Data directories start after the optional header's fixed part: 96 bytes for
+  // PE32 (magic 0x10b), 112 for PE32+ (0x20b). Certificate Table is index 4.
+  const dirOff = optHeaderOff + (magic === 0x20b ? 112 : 96);
+  const certDirOff = dirOff + 4 * 8;
+  const certVa = buf.readUInt32LE(certDirOff);     // file offset of the sig blob
+  const certSize = buf.readUInt32LE(certDirOff + 4);
+  if (certVa === 0 || certSize === 0) return; // already unsigned
+  // Zero the directory entry, then truncate off the appended signature blob.
+  buf.writeUInt32LE(0, certDirOff);
+  buf.writeUInt32LE(0, certDirOff + 4);
+  const trimmed = certVa < buf.length ? buf.subarray(0, certVa) : buf;
+  writeFileSync(file, trimmed);
+}
 
 const outArg = process.argv.find((a) => a.startsWith("--out="));
 const OUT = outArg
@@ -132,6 +161,15 @@ try {
   // macOS: remove the signature before injecting, re-sign after (ad-hoc).
   if (process.platform === "darwin") {
     try { execSync(`codesign --remove-signature "${outExe}"`); } catch { /* ok */ }
+  }
+
+  // Windows: node.exe ships Authenticode-signed. postject can't find its sentinel
+  // inside a signed PE ("The signature seems corrupted!" → sentinel not found),
+  // so we strip the signature from the copied exe first. Done in pure JS by
+  // clearing the PE certificate-table data directory and truncating the appended
+  // signature blob — no signtool/Windows SDK dependency.
+  if (IS_WIN) {
+    stripPeSignature(outExe);
   }
 
   step("inject blob with postject");
