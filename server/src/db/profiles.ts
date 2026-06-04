@@ -102,7 +102,7 @@ export function createProfile(input: CreateProfileInput): Profile {
     input.name,
     input.realtimePrompt ?? "",
     input.notesTemplate ?? null,
-    input.model ?? "claude-opus-4-7",
+    input.model ?? "claude-opus-4-8",
     now,
     now,
   );

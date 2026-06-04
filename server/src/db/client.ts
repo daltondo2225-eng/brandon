@@ -13,9 +13,23 @@ export const db = new DatabaseSync(config.dbPath);
 db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA foreign_keys = ON");
 
-// schema.sql lives next to this file in dev (src/db/schema.sql) but next to the
-// bundled entrypoint in production. Try both before giving up.
+// schema.sql lives next to this file in dev (src/db/schema.sql) and next to the
+// bundled entrypoint in the Electron build. In the standalone SEA build there is
+// no real file on disk relative to __dirname (it resolves into the injected
+// blob's virtual path), so the SEA bundler embeds schema.sql as an asset and we
+// read it via node:sea first. Filesystem candidates remain the fallback.
 function readSchema(): string {
+  // 1. SEA asset (standalone server.exe). node:sea is only present in an SEA
+  //    runtime; guard the require so dev/Electron Node ignores it.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const sea = require("node:sea") as { isSea(): boolean; getAsset(k: string, e: string): string };
+    if (sea.isSea?.()) {
+      return sea.getAsset("schema.sql", "utf8");
+    }
+  } catch { /* not running as SEA — fall through to filesystem */ }
+
+  // 2. Filesystem (dev + Electron bundle).
   const candidates = [
     resolve(__dirname, "schema.sql"),
     resolve(__dirname, "..", "schema.sql"),

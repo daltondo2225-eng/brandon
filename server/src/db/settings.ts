@@ -23,6 +23,36 @@ export function getAnthropicKey(): string {
   return getSetting("anthropicApiKey") ?? process.env.ANTHROPIC_API_KEY ?? "";
 }
 
+/** Read the user-saved OpenAI key from settings, falling back to env. */
+export function getOpenAIKey(): string {
+  return getSetting("openaiApiKey") ?? process.env.OPENAI_API_KEY ?? "";
+}
+
+/** Read the user-saved Google Gemini key from settings, falling back to env. */
+export function getGeminiKey(): string {
+  return getSetting("geminiApiKey") ?? process.env.GEMINI_API_KEY ?? "";
+}
+
 export function isKeySet(): boolean {
   return getAnthropicKey().trim().length > 0;
+}
+
+export function isOpenAIKeySet(): boolean {
+  return getOpenAIKey().trim().length > 0;
+}
+
+export function isGeminiKeySet(): boolean {
+  return getGeminiKey().trim().length > 0;
+}
+
+/** Global default interview brief applied to EVERY profile (per-profile briefs
+ *  append to it). Lets the user set their background/voice once. */
+export function getDefaultBrief(): string {
+  return getSetting("defaultInterviewBrief") ?? "";
+}
+
+/** Global default voice sample applied to every profile (per-profile voice
+ *  sample, if set, takes precedence). */
+export function getDefaultVoiceSample(): string {
+  return getSetting("defaultVoiceSample") ?? "";
 }

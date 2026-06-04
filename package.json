@@ -6,15 +6,20 @@
   "workspaces": [
     "shared",
     "server",
-    "client"
+    "client",
+    "client-tauri"
   ],
   "scripts": {
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
     "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:tauri": "concurrently -n server,tauri -c blue,green \"npm:dev:server\" \"npm --workspace @brandon/client-tauri run tauri:dev\"",
     "build": "npm --workspaces --if-present run build",
     "package:server": "node scripts/package-server.mjs",
+    "package:server:tauri": "node scripts/package-server.mjs --out=client-tauri/src-tauri/server",
+    "build:server:tauri": "node scripts/build-server-sea.mjs --out=client-tauri/src-tauri/bin",
     "dist": "npm run package:server && npm --workspace client run dist",
+    "dist:tauri": "npm run build:server:tauri && npm --workspace @brandon/client-tauri run tauri:build",
     "publish:sidecar": "powershell -ExecutionPolicy Bypass -File ./sidecar/publish.ps1"
   },
   "devDependencies": {

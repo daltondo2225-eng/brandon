@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import sensible from "@fastify/sensible";
@@ -38,6 +40,13 @@ await registerSettingsRoutes(app);
 await registerChatRoutes(app);
 
 app.listen({ port: config.port, host: "127.0.0.1" }).then(() => {
-  app.log.info(`Brandon server listening on http://127.0.0.1:${config.port}`);
+  const addr = app.server.address();
+  const boundPort = typeof addr === "object" && addr ? addr.port : config.port;
+  // Publish the resolved port so the desktop shell can find us without a fixed
+  // PORT (the API key is published the same way in config.ts).
+  try {
+    writeFileSync(resolve(config.dataDir, "brandon-port"), String(boundPort), "utf8");
+  } catch { /* non-fatal — prod passes PORT explicitly anyway */ }
+  app.log.info(`Brandon server listening on http://127.0.0.1:${boundPort}`);
   app.log.info(`Local API key: ${config.apiKey}`);
 });

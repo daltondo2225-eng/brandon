@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Brandon avatar — abstract soundwave (live audio meter) in a rounded badge.
+       Mirrors src/lib/BrandMark.tsx. Keep in sync. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6ea8ff"/>
+      <stop offset="1" stop-color="#9b6bff"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="120" fill="url(#g)"/>
+  <!-- Five bars centered, heights mirror the React component (0.42,0.72,1,0.6,0.34). -->
+  <g fill="#ffffff">
+    <rect x="158" y="201" width="34" height="110" rx="17"/>
+    <rect x="200" y="162" width="34" height="188" rx="17"/>
+    <rect x="242" y="126" width="34" height="260" rx="17"/>
+    <rect x="284" y="178" width="34" height="156" rx="17"/>
+    <rect x="326" y="212" width="34" height="88" rx="17"/>
+  </g>
+</svg>

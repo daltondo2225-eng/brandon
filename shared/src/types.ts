@@ -1,12 +1,37 @@
 export type ProfileId = string;
 export type FileId = string;
 
-export const SUPPORTED_MODELS = [
+export const ANTHROPIC_MODELS = [
+  "claude-opus-4-8",
   "claude-sonnet-4-6",
   "claude-opus-4-7",
   "claude-haiku-4-5-20251001",
 ] as const;
+
+export const OPENAI_MODELS = [
+  "gpt-5.5",
+] as const;
+
+export const GEMINI_MODELS = [
+  "gemini-3.1-pro-preview",
+  "gemini-3.5-flash",
+] as const;
+
+export const SUPPORTED_MODELS = [
+  ...ANTHROPIC_MODELS,
+  ...OPENAI_MODELS,
+  ...GEMINI_MODELS,
+] as const;
 export type ModelId = (typeof SUPPORTED_MODELS)[number];
+
+export type Provider = "anthropic" | "openai" | "gemini";
+
+/** Which provider serves a given model — used to route chat requests. */
+export function providerForModel(model: string): Provider {
+  if ((OPENAI_MODELS as readonly string[]).includes(model)) return "openai";
+  if (model.startsWith("gemini")) return "gemini";
+  return "anthropic";
+}
 
 export interface Profile {
   id: ProfileId;
@@ -53,12 +78,23 @@ export interface ChatTurn {
   assistant: string;
 }
 
+/** A pasted/attached image for the current question (e.g. a screenshot of a
+ *  coding problem or a system-design diagram). Sent inline as a base64 data URL. */
+export interface ChatImage {
+  /** image media type, e.g. "image/png" | "image/jpeg" | "image/webp" */
+  mediaType: string;
+  /** base64-encoded image bytes (no data: prefix) */
+  data: string;
+}
+
 export interface ChatRequest {
   profileId: ProfileId;
   transcriptWindow: string;
   userIntent?: string;
   /** Prior turns from this interview so Claude has conversation context. */
   priorTurns?: ChatTurn[];
+  /** Images attached to THIS question (screenshots of the coding/design panel). */
+  images?: ChatImage[];
 }
 
 export type ChatChunk =

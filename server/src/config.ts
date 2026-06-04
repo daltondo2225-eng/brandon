@@ -41,8 +41,12 @@ function ensureLocalApiKey(): string {
   return generated;
 }
 
+// When PORT is unset we bind to 0 so the OS hands us a free port — this avoids
+// dev collisions with other local services. The actual bound port is written
+// to <dataDir>/brandon-port after listen() so the desktop shell can discover it.
+const portEnv = process.env.PORT?.trim();
 export const config = {
-  port: Number(process.env.PORT ?? 8787),
+  port: portEnv ? Number(portEnv) : 0,
   apiKey: ensureLocalApiKey(),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   extendedCache: process.env.BRANDON_EXTENDED_CACHE === "true",

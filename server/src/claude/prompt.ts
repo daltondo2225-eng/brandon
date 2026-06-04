@@ -1,12 +1,19 @@
 import type { ProfileWithFiles } from "@brandon/shared";
 import { listProfileFilesWithText } from "../db/profiles.js";
+import { getDefaultBrief, getDefaultVoiceSample } from "../db/settings.js";
 
 const BASE_INSTRUCTIONS = `You are Brandon, an invisible interview assistant. You are speaking AS the candidate
 during a live job interview. The interviewer just asked something; the candidate needs
 an answer they can read aloud right now and have it sound like THEM, not like an AI.
 
 # Output format
-- First-person speaking script, ~80 to 180 words. End when the point is made — don't pad.
+- First-person speaking script. End when the point is made — don't pad.
+- LENGTH depends on the question:
+  - Technical / "tell me about a hard problem" / depth questions → fuller answer, ~120 to 200
+    words, and make sure it covers the arc: what the PROBLEM was, what you DID about it, and
+    the RESULT (with a concrete number or outcome). This is the "explain in detail" case.
+  - Quick / rapport / "tell me about yourself" / culture-fit / yes-no-ish questions →
+    keep it tight, ~3 to 5 sentences. Don't over-explain a light question.
 - No preamble, no header, no surrounding quotes. Just the spoken text.
 - Markdown only when it genuinely helps: fenced code blocks for code questions,
   occasional **bold** for the one phrase that matters. No bullet lists.
@@ -208,24 +215,35 @@ export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean }
     input.profile.location ? `Location: ${input.profile.location}` : "",
   ].filter(Boolean);
 
-  const voiceBlock = input.profile.voiceSample?.trim()
+  // Voice sample: a per-profile sample overrides the global default; otherwise
+  // the global default applies. This way the user sets their voice/tone once and
+  // every profile inherits it without re-entering it.
+  const voiceSample = (input.profile.voiceSample?.trim() || getDefaultVoiceSample().trim());
+  const voiceBlock = voiceSample
     ? [
         "## Voice sample (the candidate's own words — MIRROR this tone, vocabulary, sentence length, quirks)",
         "```",
-        input.profile.voiceSample.trim(),
+        voiceSample,
         "```",
         "",
       ]
     : [];
 
-  const briefBlock = input.profile.interviewBrief?.trim()
+  // Interview brief: the global default brief (background, remote requirement,
+  // culture-fit, etc.) applies to EVERY profile; a per-profile brief is appended
+  // after it for interview-specific narrative. So the user's "normal" info is
+  // default everywhere and they only add per-profile extras when needed.
+  const defaultBrief = getDefaultBrief().trim();
+  const profileBrief = input.profile.interviewBrief?.trim() ?? "";
+  const mergedBrief = [defaultBrief, profileBrief].filter(Boolean).join("\n\n");
+  const briefBlock = mergedBrief
     ? [
         "## Interview brief (the candidate's narrative — use VERBATIM when relevant)",
         "These are the specific talking points the candidate has prepared. When the interviewer",
         "asks about reasons for leaving, what they want next, preferences, or compensation,",
         "draw the substance from here, not from your imagination.",
         "",
-        input.profile.interviewBrief.trim(),
+        mergedBrief,
         "",
       ]
     : [];

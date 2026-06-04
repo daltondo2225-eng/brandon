@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ChatTurn, ChatUsage, ProfileWithFiles } from "@brandon/shared";
+import type { ChatImage, ChatTurn, ChatUsage, ProfileWithFiles } from "@brandon/shared";
 import { config } from "../config.js";
 import { getAnthropicKey } from "../db/settings.js";
 import { buildPrompt } from "./prompt.js";
@@ -28,6 +28,7 @@ export interface StreamInput {
   transcriptWindow: string;
   userIntent?: string;
   priorTurns?: ChatTurn[];
+  images?: ChatImage[];
   sessionContext?: { targetCompany: string | null; jobDescription: string | null };
   onText: (text: string) => void;
   onDone: (usage: ChatUsage) => void;
@@ -206,12 +207,30 @@ export async function streamCompletion(input: StreamInput): Promise<void> {
   );
 
   // Build a proper multi-turn message list: prior turns (verbatim) + the new user turn.
-  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  const messages: Anthropic.MessageParam[] = [];
   for (const t of input.priorTurns ?? []) {
     if (t.user) messages.push({ role: "user", content: t.user });
     if (t.assistant) messages.push({ role: "assistant", content: t.assistant });
   }
-  messages.push({ role: "user", content: built.userMessage });
+  // Attach any pasted images (screenshots of the coding/design panel) as image
+  // blocks alongside the text of the current question.
+  const images = input.images ?? [];
+  if (images.length) {
+    const content: Anthropic.ContentBlockParam[] = [
+      { type: "text", text: built.userMessage },
+      ...images.map((img): Anthropic.ImageBlockParam => ({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: img.mediaType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+          data: img.data,
+        },
+      })),
+    ];
+    messages.push({ role: "user", content });
+  } else {
+    messages.push({ role: "user", content: built.userMessage });
+  }
 
   const stream = await client().messages.stream(
     {

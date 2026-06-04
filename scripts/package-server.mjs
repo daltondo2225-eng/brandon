@@ -24,7 +24,14 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const SERVER_SRC = resolve(ROOT, "server");
-const STAGE = resolve(ROOT, "client", "resources", "server");
+// Default stage dir is the Electron resources path; override with --out=<dir>
+// (or BRANDON_SERVER_STAGE) so the Tauri build can stage into src-tauri/server.
+const outArg = process.argv.find((a) => a.startsWith("--out="));
+const STAGE = outArg
+  ? resolve(ROOT, outArg.slice("--out=".length))
+  : process.env.BRANDON_SERVER_STAGE
+    ? resolve(ROOT, process.env.BRANDON_SERVER_STAGE)
+    : resolve(ROOT, "client", "resources", "server");
 
 function step(msg) { console.log(`\n=== ${msg} ===`); }
 function run(cmd, cwd) {

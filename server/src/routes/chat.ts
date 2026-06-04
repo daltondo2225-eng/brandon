@@ -1,8 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { providerForModel } from "@brandon/shared";
 import { getProfile } from "../db/profiles.js";
 import { findActiveSessionForProfile } from "../db/sessions.js";
-import { streamCompletion } from "../claude/client.js";
+import { streamCompletion as streamAnthropic } from "../claude/client.js";
+import { streamCompletion as streamOpenAI } from "../openai/client.js";
+import { streamCompletion as streamGemini } from "../gemini/client.js";
 
 const ChatBody = z.object({
   profileId: z.string(),
@@ -11,6 +14,10 @@ const ChatBody = z.object({
   priorTurns: z.array(z.object({
     user: z.string(),
     assistant: z.string(),
+  })).optional(),
+  images: z.array(z.object({
+    mediaType: z.string(),
+    data: z.string(),
   })).optional(),
 });
 
@@ -46,12 +53,19 @@ export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
     // Look up per-interview context (target company + job description) from the
     // most recent unended session for this profile. Set in the pre-interview modal.
     const activeSession = findActiveSessionForProfile(profile.id);
+    // Route to the provider that serves the profile's selected model.
+    const provider = providerForModel(profile.model);
+    const stream =
+      provider === "openai" ? streamOpenAI
+      : provider === "gemini" ? streamGemini
+      : streamAnthropic;
     try {
-      await streamCompletion({
+      await stream({
         profile,
         transcriptWindow: parsed.data.transcriptWindow,
         userIntent: parsed.data.userIntent,
         priorTurns: parsed.data.priorTurns ?? [],
+        images: parsed.data.images ?? [],
         sessionContext: activeSession
           ? { targetCompany: activeSession.targetCompany, jobDescription: activeSession.jobDescription }
           : undefined,
