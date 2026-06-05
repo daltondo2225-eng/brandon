@@ -6,16 +6,17 @@ declare global {
   }
 }
 
-let _config: { serverBase: string } | null = null;
-
+// The server URL lives in the main process (one source of truth, shared by the
+// main window + the overlay, which are SEPARATE renderer processes). We do NOT
+// cache it in the renderer: a stale per-window cache caused the overlay to keep
+// hitting the old base (e.g. localhost) after the URL was changed in the main
+// window — "Failed to fetch" during interviews. The IPC read is cheap.
 export async function getConfig(): Promise<{ serverBase: string }> {
-  if (_config) return _config;
-  _config = await window.brandon.getConfig();
-  return _config;
+  return window.brandon.getConfig();
 }
 
-/** Force a re-read of the server URL (after the user edits it on the login screen). */
-export function resetConfigCache(): void { _config = null; }
+/** No-op kept for call sites; config is always read live now. */
+export function resetConfigCache(): void { /* config is no longer cached */ }
 
 export const bridge = {
   getToken: window.brandon.getToken,

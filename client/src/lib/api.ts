@@ -342,12 +342,21 @@ export async function streamChat(
   handlers: ChatStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${await base()}/chat`, {
-    method: "POST",
-    headers: await jsonHeaders(),
-    body: JSON.stringify(body),
-    signal,
-  });
+  const chatUrl = `${await base()}/chat`;
+  let res: Response;
+  try {
+    res = await fetch(chatUrl, {
+      method: "POST",
+      headers: await jsonHeaders(),
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    // A connection failure ("Failed to fetch") gives no URL by default — log it
+    // so a wrong/unreachable server base is diagnosable.
+    console.error("streamChat: could not reach", chatUrl, "—", (e as Error).message);
+    throw e;
+  }
   if (!res.ok || !res.body) {
     handlers.onError(`HTTP ${res.status}: ${await res.text()}`);
     return;
