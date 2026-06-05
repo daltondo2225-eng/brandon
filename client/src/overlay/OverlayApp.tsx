@@ -93,6 +93,84 @@ export function OverlayApp() {
    *  mutated (LCCopier-style anchor splice). null = no mark. */
   const [markPos, setMarkPos] = useState<number | null>(null);
   const [note, setNote] = useState<string>("");
+  /** Images attached to the next chat — pasted from clipboard or picked from
+   *  the file dialog. Each is a base64 data URL + media type ready for the
+   *  ChatRequest's `images` field. */
+  const [pendingImages, setPendingImages] = useState<Array<{ mediaType: string; data: string; previewUrl: string }>>([]);
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+  /** Code-tool calls Brandon made during the in-flight chat — rendered as inline
+   *  progress lines above the streaming response. Cleared at the start of every
+   *  new chat trigger. */
+  const [toolCalls, setToolCalls] = useState<Array<{ summary: string; ok: boolean }>>([]);
+  // Output font size for the response area. Persisted to localStorage so the
+  // user's preferred size carries across overlay sessions.
+  const [fontSize, setFontSize] = useState<number>(() => {
+    try {
+      const v = parseInt(localStorage.getItem("brandon.overlayFontSize") || "", 10);
+      if (Number.isFinite(v) && v >= 12 && v <= 32) return v;
+    } catch { /* localStorage may be unavailable */ }
+    return 18;
+  });
+  useEffect(() => {
+    try { localStorage.setItem("brandon.overlayFontSize", String(fontSize)); } catch { /* ignore */ }
+  }, [fontSize]);
+  const bumpFontSize = (delta: number) =>
+    setFontSize((v) => Math.max(12, Math.min(32, v + delta)));
+
+  // Convert a File / Blob into a base64-without-prefix string we can send to
+  // the server. Reads as data URL then strips the `data:type;base64,` head.
+  const fileToImage = useCallback(async (file: File | Blob): Promise<{ mediaType: string; data: string; previewUrl: string }> => {
+    const ok = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+    const mediaType = ok.includes(file.type) ? file.type : "image/png";
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result ?? ""));
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+    const comma = dataUrl.indexOf(",");
+    const data = comma >= 0 ? dataUrl.slice(comma + 1) : "";
+    return { mediaType, data, previewUrl: dataUrl };
+  }, []);
+
+  // Listen for Ctrl+V paste anywhere in the overlay; if the clipboard has an
+  // image, attach it as a pending image for the next chat.
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imgs: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) imgs.push(f);
+        }
+      }
+      if (!imgs.length) return;
+      e.preventDefault();
+      const converted = await Promise.all(imgs.map(fileToImage));
+      setPendingImages((prev) => [...prev, ...converted]);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [fileToImage]);
+
+  const attachFromFileDialog = useCallback(async (files: FileList | null) => {
+    if (!files) return;
+    const out: typeof pendingImages = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.type.startsWith("image/")) out.push(await fileToImage(f));
+    }
+    if (out.length) setPendingImages((prev) => [...prev, ...out]);
+  }, [fileToImage]);
+
+  const removeImage = useCallback((idx: number) => {
+    setPendingImages((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
   const [weather, setWeather] = useState<Weather | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [response, setResponse] = useState<ParsedResponse | null>(null);
@@ -243,33 +321,86 @@ export function OverlayApp() {
 
     const priorTurns: ChatTurn[] = turnsRef.current.map((t) => ({ user: t.user, assistant: t.assistant }));
 
+    // Snapshot the inputs before clearing — so an error path can restore them
+    // and the user just hits Enter again instead of retyping the whole question.
+    const sentNote = noteText;
+    const sentMarkPos = markPosRef.current;
+    const sentImages = pendingImagesRef.current.slice();
+
     // Clear the form immediately so the user can already mark the next question
     // and start typing the next note while Claude is still streaming the answer.
     setMarkPos(null);
     setNote("");
+    setPendingImages([]);
+    setToolCalls([]);
+
+    const restoreInputs = () => {
+      // Only restore if the user hasn't already started typing the next one.
+      if (!noteRef.current && markPosRef.current === null && pendingImagesRef.current.length === 0) {
+        setNote(sentNote);
+        if (sentMarkPos !== null) setMarkPos(sentMarkPos);
+        if (sentImages.length > 0) setPendingImages(sentImages);
+      }
+    };
 
     let raw = "";
     try {
       await api.streamChat(
-        { profileId: profile.id, transcriptWindow: transcriptRef.current, userIntent, priorTurns },
+        {
+          profileId: profile.id,
+          transcriptWindow: transcriptRef.current,
+          userIntent,
+          priorTurns,
+          images: pendingImagesRef.current.map(({ mediaType, data }) => ({ mediaType, data })),
+        },
         {
           onText: (text) => { raw += text; setResponse(parseResponse(raw)); },
+          onTool: (evt) => setToolCalls((prev) => [...prev, { summary: evt.summary, ok: evt.ok }]),
           onDone: () => {
             setStreaming(false);
             // Persist this turn in the conversation history so Claude sees it next time.
             if (raw.trim()) {
               setTurns((prev) => [...prev, { label: bubble, user: userIntent, assistant: raw }]);
+            } else {
+              // Empty response (e.g. provider returned 0 chars) — restore so the user can retry.
+              restoreInputs();
             }
           },
-          onError: (msg) => { setError(msg); setStreaming(false); },
+          onError: (msg) => { setError(msg); setStreaming(false); restoreInputs(); },
         },
         controller.signal,
       );
     } catch (err) {
-      if ((err as Error).name !== "AbortError") setError((err as Error).message);
+      if ((err as Error).name !== "AbortError") {
+        setError((err as Error).message);
+        restoreInputs();
+      }
       setStreaming(false);
     }
   }, [activeProfile, refreshProfile]);
+
+  // Subscribe to "resume conversation" payloads pushed from the main window
+  // (MeetingDetail → Resume button). Hydrates the conversation history into
+  // state so the next chat sends them as priorTurns and the historical
+  // bubbles render immediately.
+  useEffect(() => {
+    const off = bridge.onResumeTurns((turns) => {
+      if (!Array.isArray(turns) || turns.length === 0) return;
+      const sanitized: DisplayTurn[] = turns
+        .filter((t) => t && typeof t.user === "string" && typeof t.assistant === "string")
+        .map((t) => ({
+          label: typeof t.label === "string" && t.label ? t.label : t.user.slice(0, 80),
+          user: t.user,
+          assistant: t.assistant,
+        }));
+      setTurns(sanitized);
+      // Set lastQuestion to the most recent so the streaming UI has something
+      // to anchor to if the user immediately fires off a follow-up.
+      const last = sanitized[sanitized.length - 1];
+      if (last) setLastQuestion(last.label);
+    });
+    return off;
+  }, []);
 
   useEffect(() => {
     const off = bridge.onHotkey((evt) => {
@@ -278,6 +409,7 @@ export function OverlayApp() {
         setTranscript("");
         setMarkPos(null);
         setNote("");
+        setPendingImages([]);
         prevFullRef.current = "";
         setResponse(null);
         setLastQuestion("");
@@ -342,6 +474,9 @@ export function OverlayApp() {
           await api.updateSession(open.id, {
             endedAt: Date.now(),
             transcript: combined || null,
+            // Persist the structured DisplayTurn[] so the meeting can be
+            // resumed later — see MeetingDetail's "Resume conversation" button.
+            priorTurnsJson: turnsRef.current.length ? JSON.stringify(turnsRef.current) : null,
           });
         }
       }
@@ -361,7 +496,7 @@ export function OverlayApp() {
   const hasResponse = !!(response && (responseScript || responseBullets.length || error));
   const responseRaw = response?.raw ?? "";
 
-  const canSend = !streaming && (markPos !== null || note.trim().length > 0);
+  const canSend = !streaming && (markPos !== null || note.trim().length > 0 || pendingImages.length > 0);
   const markedLen = markPos !== null ? transcript.slice(markPos).trim().length : 0;
 
   return (
@@ -372,6 +507,19 @@ export function OverlayApp() {
           {collapsed ? chevronUp : chevronDown}
           <span>{collapsed ? "Show" : "Hide"}</span>
         </button>
+        {/* Output text size — A− / A+ tweak the response font in 2px steps. */}
+        <button
+          className="font-bump"
+          onClick={() => bumpFontSize(-2)}
+          disabled={fontSize <= 12}
+          title={`Smaller (currently ${fontSize}px)`}
+        >A−</button>
+        <button
+          className="font-bump"
+          onClick={() => bumpFontSize(+2)}
+          disabled={fontSize >= 32}
+          title={`Larger (currently ${fontSize}px)`}
+        >A+</button>
         <button className="end-btn" onClick={endInterview} title="End this interview and close the overlay">
           <span>End</span>
         </button>
@@ -382,7 +530,94 @@ export function OverlayApp() {
       </div>
 
       {!collapsed && (
-        <div className="overlay-card">
+        <div className="overlay-card" style={{ ["--bubble-font-size" as never]: `${fontSize}px` }}>
+          {/* Top bar: live captions on the left, input note-card on the right,
+              equal halves, compact height. The answer stream rolls underneath. */}
+          <div className="top-bar">
+            <div className="captions-view" ref={captionsViewRef}>
+              {transcript.trim().length === 0 ? (
+                <span className="placeholder">
+                  {captionsStatus === "running"
+                    ? "Listening… waiting for spoken text."
+                    : "Press Win+Ctrl+L to start Windows Live Captions."}
+                </span>
+              ) : (
+                (() => {
+                  const VISIBLE = 600;
+                  const sliceStart = Math.max(0, transcript.length - VISIBLE);
+                  const visible = transcript.slice(sliceStart);
+                  const tokens = tokenizeCaptions(visible);
+                  return tokens.map((tok, i) => {
+                    const globalStart = sliceStart + tok.start;
+                    const isMarked = markPos !== null && globalStart >= markPos;
+                    if (tok.isSpace) {
+                      return <span key={i} className={isMarked ? "marked" : undefined}>{tok.text}</span>;
+                    }
+                    return (
+                      <span
+                        key={i}
+                        className={`tok${isMarked ? " marked" : ""}`}
+                        onClick={() => setMarkPos(globalStart)}
+                        title="Mark question start here"
+                      >{tok.text}</span>
+                    );
+                  });
+                })()
+              )}
+            </div>
+
+            <div className="note-card">
+              {pendingImages.length > 0 && (
+                <div className="attachment-row">
+                  {pendingImages.map((img, i) => (
+                    <div className="attachment" key={i} title={`Image ${i + 1} (${img.mediaType})`}>
+                      <img src={img.previewUrl} alt={`attached ${i + 1}`} />
+                      <button className="attachment-remove" onClick={() => removeImage(i)} title="Remove">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <textarea
+                className="note-input"
+                ref={noteInputRef}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Ask Brandon — paste a question or attach a screenshot. Enter to send."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    trigger();
+                  }
+                }}
+              />
+              <div className="note-actions">
+                <button
+                  className="clear-mark"
+                  onClick={() => { setMarkPos(null); setNote(""); setPendingImages([]); }}
+                  disabled={markPos === null && !note && pendingImages.length === 0}
+                  title="Clear mark, note, and attachments"
+                >Clear</button>
+                <label className="attach-btn" title="Attach image (or paste with Ctrl+V)">
+                  {paperclipIcon}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={(e) => { attachFromFileDialog(e.target.files); e.target.value = ""; }}
+                  />
+                </label>
+                <div className="actions-spacer" />
+                <button
+                  className="send-btn"
+                  onClick={trigger}
+                  disabled={!canSend}
+                  title="Send (Enter)"
+                >{sendIcon}</button>
+              </div>
+            </div>
+          </div>
+
           <div className="response-area" ref={responseScrollRef} onScroll={onResponseScroll}>
             {turns.length === 0 && !streaming && !lastQuestion && (
               <div className="placeholder">
@@ -403,6 +638,15 @@ export function OverlayApp() {
               <div className="turn current">
                 {lastQuestion && <div className="bubble user">{truncate(lastQuestion, 320)}</div>}
                 {error && <div className="error">{error}</div>}
+                {toolCalls.length > 0 && (
+                  <div className="tool-calls">
+                    {toolCalls.map((t, i) => (
+                      <div key={i} className={`tool-call${t.ok ? "" : " err"}`}>
+                        🔍 {t.summary}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {responseRaw && (
                   <div className="bubble assistant">
                     <Markdown>{responseRaw}</Markdown>
@@ -416,79 +660,6 @@ export function OverlayApp() {
             )}
 
             {!streaming && error && <div className="error">{error}</div>}
-          </div>
-
-          {/* Live captions viewer. Click any word to mark where the question
-              starts; mark + note can be sent together. The sidecar guarantees a
-              byte-stable prefix so the mark offset survives every update. */}
-          <div className="captions-view" ref={captionsViewRef}>
-            {transcript.trim().length === 0 ? (
-              <span className="placeholder">
-                {captionsStatus === "running"
-                  ? "Listening… waiting for spoken text."
-                  : "Press Win+Ctrl+L to start Windows Live Captions."}
-              </span>
-            ) : (
-              (() => {
-                const VISIBLE = 600;
-                const sliceStart = Math.max(0, transcript.length - VISIBLE);
-                const visible = transcript.slice(sliceStart);
-                const tokens = tokenizeCaptions(visible);
-                return tokens.map((tok, i) => {
-                  const globalStart = sliceStart + tok.start;
-                  const isMarked = markPos !== null && globalStart >= markPos;
-                  if (tok.isSpace) {
-                    return <span key={i} className={isMarked ? "marked" : undefined}>{tok.text}</span>;
-                  }
-                  return (
-                    <span
-                      key={i}
-                      className={`tok${isMarked ? " marked" : ""}`}
-                      onClick={() => setMarkPos(globalStart)}
-                      title="Mark question start here"
-                    >{tok.text}</span>
-                  );
-                });
-              })()
-            )}
-          </div>
-
-          {/* Single input card — type your question/instruction and press Enter. */}
-          <div className="note-card">
-            <textarea
-              className="note-input"
-              ref={noteInputRef}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Ask Brandon anything — paste the interviewer's question or write your own instruction. Enter to send, Shift+Enter for newline."
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  trigger();
-                }
-              }}
-            />
-            <div className="note-actions">
-              <button
-                className="clear-mark"
-                onClick={() => { setMarkPos(null); setNote(""); }}
-                disabled={markPos === null && !note}
-                title="Clear mark and note"
-              >Clear</button>
-              <span className="hint-label">
-                {markedLen > 0 && `Marked · ${markedLen} chars`}
-                {markedLen > 0 && note.trim() && " + note"}
-                {markedLen === 0 && note.trim() && `${note.trim().length} chars`}
-                {markedLen === 0 && !note.trim() && "Click a caption word to mark, or type"}
-              </span>
-              <span className="kbd">↵</span>
-              <button
-                className="send-btn"
-                onClick={trigger}
-                disabled={!canSend}
-                title="Send (Enter)"
-              >{sendIcon}</button>
-            </div>
           </div>
 
           <div className="overlay-footer">
@@ -575,4 +746,5 @@ const chevronDown = (<svg width="10" height="10" viewBox="0 0 12 12" fill="none"
 const chevronUp = (<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M3 7l3-3 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const micIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="6" y="2" width="4" height="8" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M3.5 8a4.5 4.5 0 009 0M8 12.5V14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>);
 const sendIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l10-5-3 5 3 5-10-5z" fill="currentColor"/></svg>);
+const paperclipIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 7l-4.7 4.7a2 2 0 01-2.8-2.8L8.7 4.2a3 3 0 014.2 4.2L8 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const stopIcon = (<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/></svg>);

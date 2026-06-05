@@ -1,4 +1,5 @@
 import type { ModelId, Profile, ProfileWithFiles, ReferenceFile } from "@brandon/shared";
+import { DEFAULT_REALTIME_PROMPT } from "@brandon/shared";
 import { nanoid } from "nanoid";
 import { db, tx } from "./client.js";
 
@@ -22,6 +23,7 @@ interface ProfileRow {
   location: string | null;
   voice_sample: string | null;
   interview_brief: string | null;
+  repo_root: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -52,6 +54,7 @@ function toProfile(row: ProfileRow): Profile {
     location: row.location ?? null,
     voiceSample: row.voice_sample ?? null,
     interviewBrief: row.interview_brief ?? null,
+    repoRoot: row.repo_root ?? null,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -100,7 +103,7 @@ export function createProfile(input: CreateProfileInput): Profile {
   ).run(
     id,
     input.name,
-    input.realtimePrompt ?? "",
+    input.realtimePrompt ?? DEFAULT_REALTIME_PROMPT,
     input.notesTemplate ?? null,
     input.model ?? "claude-opus-4-7",
     now,
@@ -120,6 +123,7 @@ export interface UpdateProfileInput {
   location?: string | null;
   voiceSample?: string | null;
   interviewBrief?: string | null;
+  repoRoot?: string | null;
 }
 
 export function updateProfile(id: string, input: UpdateProfileInput): Profile | null {
@@ -138,6 +142,7 @@ export function updateProfile(id: string, input: UpdateProfileInput): Profile | 
          location = ?,
          voice_sample = ?,
          interview_brief = ?,
+         repo_root = ?,
          updated_at = ?
      WHERE id = ?`,
   ).run(
@@ -151,6 +156,7 @@ export function updateProfile(id: string, input: UpdateProfileInput): Profile | 
     input.location === undefined ? existing.location : input.location,
     input.voiceSample === undefined ? existing.voice_sample : input.voiceSample,
     input.interviewBrief === undefined ? existing.interview_brief : input.interviewBrief,
+    input.repoRoot === undefined ? existing.repo_root : input.repoRoot,
     now,
     id,
   );

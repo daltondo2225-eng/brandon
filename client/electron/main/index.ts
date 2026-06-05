@@ -5,6 +5,13 @@ import { startServer, stopServer, type ServerHandle } from "./server";
 
 const isDev = !app.isPackaged;
 
+// Force CPU-side compositing. Chromium's GPU compositor on this Win11 setup
+// silently fails to paint frameless+transparent BrowserWindows (cursor
+// hit-test still works, no pixels render). Disabling hardware acceleration
+// switches to the software compositor, which handles layered windows
+// reliably and lets us keep the original pill-floats-over-desktop look.
+app.disableHardwareAcceleration();
+
 // Server handle, populated during app.whenReady() before any window is created.
 let serverHandle: ServerHandle = { baseUrl: "http://127.0.0.1:8787", apiKey: "" };
 
@@ -65,6 +72,10 @@ function createMainWindow(): BrowserWindow {
     height: 720,
     show: false,
     title: "Brandon",
+    // styles.css makes body/html transparent (needed for the frameless overlay
+    // window which shares the stylesheet). Force the main window's underlying
+    // surface to opaque white so the sidebar and chat panel render visibly.
+    backgroundColor: "#ffffff",
     webPreferences: {
       preload: join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
@@ -120,13 +131,17 @@ function createOverlayWindow(): BrowserWindow {
   });
   win.setAlwaysOnTop(true, "screen-saver");
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.setContentProtection(true);
+  // setContentProtection(true) (WDA_EXCLUDEFROMCAPTURE) hides the window from
+  // screen-share — Brandon's "undetectable" feature. On some Win11 GPU/driver
+  // configs it also makes the window invisible to the user, defeating the
+  // whole tool. Start with it OFF; the user re-enables via the Detectable
+  // toggle (settings:set-detectable IPC) when they actually need stealth.
+  win.setContentProtection(false);
   // Overlay always captures mouse — needed so the user can drag the window from
   // the title pill / card body and grab the resize corner. Click-through isn't
   // worth the cost in usability for this small overlay.
 
   const reapply = () => {
-    win.setContentProtection(true);
     win.setAlwaysOnTop(true, "screen-saver");
   };
   win.on("show", reapply);
@@ -244,6 +259,16 @@ app.whenReady().then(async () => {
     if (!overlayWindow) return;
     // Detectable = visible in screen capture. When TRUE, disable content protection.
     overlayWindow.setContentProtection(!detectable);
+  });
+
+  // Resume conversation flow: main window sends a set of prior turns; we
+  // forward them to the overlay and bring it to front. The overlay's
+  // useEffect picks up the "resume:turns" event and hydrates state.
+  ipcMain.on("overlay:resume", (_e, turns: unknown) => {
+    if (!overlayWindow) return;
+    send(overlayWindow, "resume:turns", turns);
+    if (!overlayWindow.isVisible()) overlayWindow.show();
+    overlayWindow.focus();
   });
 
   onCaptionsEvent((event) => {

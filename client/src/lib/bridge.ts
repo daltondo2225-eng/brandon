@@ -27,4 +27,6 @@ export const bridge = {
   showMainWindow: window.brandon.showMainWindow,
   hideMainWindow: window.brandon.hideMainWindow,
   setDetectable: window.brandon.setDetectable,
+  resumeOverlay: window.brandon.resumeOverlay,
+  onResumeTurns: window.brandon.onResumeTurns,
 };

@@ -10,7 +10,9 @@ import {
 } from "../db/sessions.js";
 import { upsertCompanyByName } from "../db/companies.js";
 import { getProfile } from "../db/profiles.js";
-import { generateRecap } from "../claude/client.js";
+// Recaps now go through OpenAI (gpt-5.5). Switched from Claude haiku to put
+// the user's OpenAI quota to work for the heavier transcript summarisation.
+import { generateRecap } from "../openai/client.js";
 
 const CreateBody = z.object({
   profileId: z.string().nullable().optional(),
@@ -24,6 +26,7 @@ const UpdateBody = z.object({
   endedAt: z.number().nullable().optional(),
   transcript: z.string().nullable().optional(),
   recap: z.string().nullable().optional(),
+  priorTurnsJson: z.string().nullable().optional(),
 });
 
 const ListQuery = z.object({

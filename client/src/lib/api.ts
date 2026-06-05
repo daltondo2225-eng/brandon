@@ -1,4 +1,4 @@
-import type { AgendaItem, ChatChunk, ChatTurn, Company, CompanyStatus, PipelineEntry, Profile, ProfileWithFiles, ReferenceFile, Session } from "@brandon/shared";
+import type { AgendaItem, ChatChunk, ChatImage, ChatTurn, Company, CompanyStatus, PipelineEntry, Profile, ProfileWithFiles, ReferenceFile, Session } from "@brandon/shared";
 import { getConfig } from "./bridge";
 
 async function authHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
@@ -89,7 +89,7 @@ export async function createSession(
   return handle<Session>(res);
 }
 
-export async function updateSession(id: string, input: { title?: string; endedAt?: number | null; transcript?: string | null; recap?: string | null }): Promise<Session> {
+export async function updateSession(id: string, input: { title?: string; endedAt?: number | null; transcript?: string | null; recap?: string | null; priorTurnsJson?: string | null }): Promise<Session> {
   const res = await fetch(`${await base()}/sessions/${id}`, {
     method: "PATCH",
     headers: await jsonHeaders(),
@@ -136,20 +136,52 @@ export async function deleteCompany(id: string): Promise<void> {
   if (!res.ok) throw new Error(`${res.status}`);
 }
 
-export interface AnthropicKeyStatus { set: boolean; preview: string | null; }
+export interface KeyStatus { set: boolean; preview: string | null; }
+/** Backwards-compatible alias for callers that still use the old type name. */
+export type AnthropicKeyStatus = KeyStatus;
 
-export async function getAnthropicKeyStatus(): Promise<AnthropicKeyStatus> {
-  const res = await fetch(`${await base()}/settings/anthropic`, { headers: await authHeaders() });
-  return handle<AnthropicKeyStatus>(res);
+export type ProviderName = "anthropic" | "openai" | "gemini";
+const KEY_PATHS: Record<ProviderName, string> = {
+  anthropic: "/settings/anthropic",
+  openai: "/settings/openai",
+  gemini: "/settings/gemini",
+};
+
+export async function getKeyStatus(provider: ProviderName): Promise<KeyStatus> {
+  const res = await fetch(`${await base()}${KEY_PATHS[provider]}`, { headers: await authHeaders() });
+  return handle<KeyStatus>(res);
 }
 
-export async function setAnthropicKey(key: string | null): Promise<AnthropicKeyStatus> {
-  const res = await fetch(`${await base()}/settings/anthropic`, {
+export async function setProviderKey(provider: ProviderName, key: string | null): Promise<KeyStatus> {
+  const res = await fetch(`${await base()}${KEY_PATHS[provider]}`, {
     method: "PUT",
     headers: await jsonHeaders(),
-    body: JSON.stringify({ anthropicApiKey: key }),
+    body: JSON.stringify({ apiKey: key }),
   });
-  return handle<AnthropicKeyStatus>(res);
+  return handle<KeyStatus>(res);
+}
+
+// Old wrappers kept so the rest of the renderer doesn't need to be rewritten.
+export const getAnthropicKeyStatus = () => getKeyStatus("anthropic");
+export const setAnthropicKey = (k: string | null) => setProviderKey("anthropic", k);
+
+export interface GlobalDefaults {
+  defaultInterviewBrief: string;
+  defaultVoiceSample: string;
+}
+
+export async function getDefaults(): Promise<GlobalDefaults> {
+  const res = await fetch(`${await base()}/settings/defaults`, { headers: await authHeaders() });
+  return handle<GlobalDefaults>(res);
+}
+
+export async function saveDefaults(input: Partial<GlobalDefaults>): Promise<GlobalDefaults> {
+  const res = await fetch(`${await base()}/settings/defaults`, {
+    method: "PUT",
+    headers: await jsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  return handle<GlobalDefaults>(res);
 }
 
 export async function generateRecap(id: string): Promise<Session> {
@@ -197,14 +229,25 @@ export async function deleteFile(fileId: string): Promise<void> {
   if (!res.ok) throw new Error(`${res.status}`);
 }
 
+/** A code-tool invocation event surfaced from the server while a chat is streaming. */
+export interface ToolEvent {
+  name: string;
+  input: Record<string, unknown>;
+  ok: boolean;
+  /** Short human-readable description, e.g. "read backend/TodoApi/...:19-91". */
+  summary: string;
+}
+
 export interface ChatStreamHandlers {
   onText: (text: string) => void;
   onDone: (chunk: Extract<ChatChunk, { type: "done" }>) => void;
   onError: (message: string) => void;
+  /** Fires when the model invokes read_file / list_dir against the profile's repoRoot. */
+  onTool?: (event: ToolEvent) => void;
 }
 
 export async function streamChat(
-  body: { profileId: string; transcriptWindow: string; userIntent?: string; priorTurns?: ChatTurn[] },
+  body: { profileId: string; transcriptWindow: string; userIntent?: string; priorTurns?: ChatTurn[]; images?: ChatImage[] },
   handlers: ChatStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -234,6 +277,14 @@ export async function streamChat(
       if (event.event === "chunk") {
         if (event.data.type === "text") handlers.onText(event.data.text);
         if (event.data.type === "error") handlers.onError(event.data.message);
+        if (event.data.type === "tool" && handlers.onTool) {
+          handlers.onTool({
+            name: event.data.name,
+            input: event.data.input ?? {},
+            ok: !!event.data.ok,
+            summary: event.data.summary ?? "",
+          });
+        }
       } else if (event.event === "done") {
         handlers.onDone(event.data);
       }

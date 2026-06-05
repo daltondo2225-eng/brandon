@@ -96,7 +96,10 @@ export async function startServer(): Promise<ServerHandle> {
 
   const baseUrl = `http://127.0.0.1:${port}`;
   try {
-    await waitForHealth(baseUrl, 15000);
+    // Packaged cold-start can take ~30-45s on the first launch (openai SDK +
+    // node:sqlite + Fastify route registration loaded from cold disk). 90s
+    // gives ample slack; subsequent launches benefit from the OS file cache.
+    await waitForHealth(baseUrl, 90000);
   } catch (e) {
     log(`health check failed: ${(e as Error).message}`);
     throw e;

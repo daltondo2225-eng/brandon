@@ -8,6 +8,14 @@ export type CaptionsEvent =
 
 export type HotkeyEvent = { type: "trigger-chat" | "clear-transcript" };
 
+/** A single Q&A turn used by the "resume conversation" flow — matches
+ *  the overlay's DisplayTurn shape. Kept here so both renderers can use it. */
+export interface ResumeTurn {
+  label: string;
+  user: string;
+  assistant: string;
+}
+
 export interface BrandonBridge {
   getConfig(): Promise<{ serverBase: string; apiKey: string }>;
   onHotkey(callback: (event: HotkeyEvent) => void): () => void;
@@ -22,6 +30,10 @@ export interface BrandonBridge {
   showMainWindow(): void;
   hideMainWindow(): void;
   setDetectable(detectable: boolean): void;
+  /** From the main window: send the overlay a set of prior turns to load. */
+  resumeOverlay(turns: ResumeTurn[]): void;
+  /** From the overlay: subscribe to resume payloads pushed by the main window. */
+  onResumeTurns(callback: (turns: ResumeTurn[]) => void): () => void;
 }
 
 const bridge: BrandonBridge = {
@@ -50,6 +62,12 @@ const bridge: BrandonBridge = {
   showMainWindow: () => ipcRenderer.send("main:show"),
   hideMainWindow: () => ipcRenderer.send("main:hide"),
   setDetectable: (detectable) => ipcRenderer.send("settings:set-detectable", detectable),
+  resumeOverlay: (turns) => ipcRenderer.send("overlay:resume", turns),
+  onResumeTurns: (callback) => {
+    const handler = (_e: unknown, turns: ResumeTurn[]) => callback(turns);
+    ipcRenderer.on("resume:turns", handler);
+    return () => ipcRenderer.removeListener("resume:turns", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("brandon", bridge);

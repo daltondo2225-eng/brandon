@@ -1,12 +1,25 @@
 import type { ProfileWithFiles } from "@brandon/shared";
 import { listProfileFilesWithText } from "../db/profiles.js";
+import { getDefaultBrief, getDefaultVoiceSample } from "../db/settings.js";
 
 const BASE_INSTRUCTIONS = `You are Brandon, an invisible interview assistant. You are speaking AS the candidate
 during a live job interview. The interviewer just asked something; the candidate needs
 an answer they can read aloud right now and have it sound like THEM, not like an AI.
 
 # Output format
-- First-person speaking script, ~80 to 180 words. End when the point is made — don't pad.
+- First-person speaking script. End when the point is made — don't pad.
+- LENGTH depends on the question — YOU decide which mode the question is in:
+  - Technical / "tell me about a hard problem" / project-deep-dive / "walk me through" /
+    "explain how X works" questions → fuller answer, ~120 to 200 words. Cover the arc:
+    what the PROBLEM was, what you DID about it, and the RESULT (with a concrete number
+    or outcome). This is the "explain in detail" case.
+  - Quick / rapport / "tell me about yourself" / culture-fit / yes-no-ish / "do you
+    prefer X or Y" / preference / availability questions → keep it tight, ~3 to 5
+    sentences. Don't over-explain a light question.
+  - Coding questions ("write a function that…", "how would you solve LeetCode-style X") →
+    short setup line, then a fenced code block in the appropriate language, then a 1-2
+    sentence note on complexity / edge cases. Don't write an essay around the code.
+  - System-design questions follow the System design section below (separate length rule).
 - No preamble, no header, no surrounding quotes. Just the spoken text.
 - Markdown only when it genuinely helps: fenced code blocks for code questions,
   occasional **bold** for the one phrase that matters. No bullet lists.
@@ -208,24 +221,35 @@ export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean }
     input.profile.location ? `Location: ${input.profile.location}` : "",
   ].filter(Boolean);
 
-  const voiceBlock = input.profile.voiceSample?.trim()
+  // Voice sample: a per-profile sample OVERRIDES the global default so the user
+  // can give a distinct tone per mode. If no per-profile sample, the global
+  // default applies.
+  const voiceSample = input.profile.voiceSample?.trim() || getDefaultVoiceSample().trim();
+  const voiceBlock = voiceSample
     ? [
         "## Voice sample (the candidate's own words — MIRROR this tone, vocabulary, sentence length, quirks)",
         "```",
-        input.profile.voiceSample.trim(),
+        voiceSample,
         "```",
         "",
       ]
     : [];
 
-  const briefBlock = input.profile.interviewBrief?.trim()
+  // Interview brief: the global default brief (background, persona, hard
+  // constraints) applies to EVERY profile; the per-profile brief is APPENDED
+  // after it for mode-specific narrative. So personal info goes in Settings once
+  // and per-profile briefs only carry the role-specific extras.
+  const defaultBrief = getDefaultBrief().trim();
+  const profileBrief = input.profile.interviewBrief?.trim() ?? "";
+  const mergedBrief = [defaultBrief, profileBrief].filter(Boolean).join("\n\n");
+  const briefBlock = mergedBrief
     ? [
         "## Interview brief (the candidate's narrative — use VERBATIM when relevant)",
         "These are the specific talking points the candidate has prepared. When the interviewer",
         "asks about reasons for leaving, what they want next, preferences, or compensation,",
         "draw the substance from here, not from your imagination.",
         "",
-        input.profile.interviewBrief.trim(),
+        mergedBrief,
         "",
       ]
     : [];
@@ -297,3 +321,4 @@ export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean }
     cacheVersion: `${input.profile.id}:${input.profile.updatedAt}`,
   };
 }
+

@@ -13,6 +13,8 @@ interface Row {
   target_company: string | null;
   job_description: string | null;
   company_id: string | null;
+  next_steps_json: string | null;
+  prior_turns_json: string | null;
 }
 
 function asRow<T>(value: unknown): T | undefined { return value as T | undefined; }
@@ -29,6 +31,7 @@ function toSession(r: Row): Session {
     recap: r.recap ?? null,
     targetCompany: r.target_company ?? null,
     jobDescription: r.job_description ?? null,
+    priorTurnsJson: r.prior_turns_json ?? null,
   };
 }
 
@@ -86,12 +89,12 @@ export interface UpdateSessionInput {
   recap?: string | null;
   /** JSON-encoded array of NextStepItem. Pass null to clear. */
   nextStepsJson?: string | null;
+  /** JSON-encoded DisplayTurn[] (overlay's Q&A history). Pass null to clear. */
+  priorTurnsJson?: string | null;
 }
 
 export function updateSession(id: string, input: UpdateSessionInput): Session | null {
-  const existing = asRow<Row & { next_steps_json?: string | null }>(
-    db.prepare("SELECT * FROM sessions WHERE id = ?").get(id),
-  );
+  const existing = asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ?").get(id));
   if (!existing) return null;
   db.prepare(
     `UPDATE sessions
@@ -99,14 +102,16 @@ export function updateSession(id: string, input: UpdateSessionInput): Session | 
          ended_at = ?,
          transcript = ?,
          recap = ?,
-         next_steps_json = ?
+         next_steps_json = ?,
+         prior_turns_json = ?
      WHERE id = ?`,
   ).run(
     input.title ?? null,
     input.endedAt === undefined ? existing.ended_at : input.endedAt,
     input.transcript === undefined ? existing.transcript : input.transcript,
     input.recap === undefined ? existing.recap : input.recap,
-    input.nextStepsJson === undefined ? (existing.next_steps_json ?? null) : input.nextStepsJson,
+    input.nextStepsJson === undefined ? existing.next_steps_json : input.nextStepsJson,
+    input.priorTurnsJson === undefined ? existing.prior_turns_json : input.priorTurnsJson,
     id,
   );
   return toSession(asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ?").get(id))!);

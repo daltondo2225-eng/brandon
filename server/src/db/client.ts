@@ -29,7 +29,7 @@ function readSchema(): string {
 db.exec(readSchema());
 
 // Migrations — add columns that were introduced after the initial schema.
-for (const col of ["full_name", "job_title", "company", "location", "voice_sample", "interview_brief"]) {
+for (const col of ["full_name", "job_title", "company", "location", "voice_sample", "interview_brief", "repo_root"]) {
   try { db.exec(`ALTER TABLE profiles ADD COLUMN ${col} TEXT`); }
   catch { /* column already exists */ }
 }
@@ -44,6 +44,8 @@ catch { /* column already exists */ }
 try { db.exec(`CREATE INDEX IF NOT EXISTS sessions_company_idx ON sessions(company_id)`); }
 catch { /* ignore */ }
 try { db.exec(`ALTER TABLE sessions ADD COLUMN next_steps_json TEXT`); }
+catch { /* column already exists */ }
+try { db.exec(`ALTER TABLE sessions ADD COLUMN prior_turns_json TEXT`); }
 catch { /* column already exists */ }
 
 export function tx<T>(fn: () => T): T {

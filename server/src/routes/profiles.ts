@@ -10,7 +10,8 @@ import {
   listProfiles,
   updateProfile,
 } from "../db/profiles.js";
-import { extractIdentityFromResume } from "../claude/client.js";
+// Identity extraction now goes through OpenAI (gpt-5.5) instead of Claude haiku.
+import { extractIdentityFromResume } from "../openai/client.js";
 
 const ModelEnum = z.enum(SUPPORTED_MODELS);
 
@@ -32,6 +33,7 @@ const UpdateBody = z.object({
   location: z.string().nullable().optional(),
   voiceSample: z.string().nullable().optional(),
   interviewBrief: z.string().nullable().optional(),
+  repoRoot: z.string().nullable().optional(),
 });
 
 export async function registerProfileRoutes(app: FastifyInstance): Promise<void> {

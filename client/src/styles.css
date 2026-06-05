@@ -948,6 +948,16 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .overlay-toppill .end-btn:hover { background: rgba(220, 60, 60, 0.32); color: white; }
 
+/* A−/A+ buttons that tweak the response font size */
+.overlay-toppill .font-bump {
+  min-width: 28px;
+  padding: 0 6px;
+  font-size: 11.5px; font-weight: 600;
+  font-feature-settings: "tnum";
+}
+.overlay-toppill .font-bump:disabled { opacity: 0.4; cursor: not-allowed; }
+
+
 /* Main glass card */
 .overlay-card {
   -webkit-app-region: drag;
@@ -1011,47 +1021,66 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   flex: 5 1 220px;
   min-height: 140px;
   overflow-y: auto;
-  padding: 10px 14px 12px 16px;
-  display: flex; flex-direction: column; gap: 8px;
-  background: linear-gradient(180deg, rgba(40, 90, 180, 0.10), rgba(40, 90, 180, 0.04));
-  border: 1px solid rgba(80, 140, 230, 0.18);
-  border-left: 2px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+  padding: 8px 4px 8px 4px;
+  display: flex; flex-direction: column; gap: 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
-.response-area .placeholder { color: rgba(255,255,255,0.45); font-size: 12.5px; padding: 6px 4px; }
+.response-area .placeholder { color: rgba(255,255,255,0.45); font-size: 12.5px; padding: 2px 0; }
+
+/* Code-tool calls shown inline above the streaming response while Brandon
+   is consulting the project files. */
+.response-area .tool-calls {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px 6px; margin-bottom: 2px;
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 11.5px; color: rgba(255,255,255,0.55);
+}
+.response-area .tool-call { line-height: 1.45; }
+.response-area .tool-call.err { color: #ff9c8c; }
 .response-area .error { color: #ff8c8c; font-size: 12px; padding: 0 4px; }
+/* ChatGPT-style flat output. User question = subtle dim line, assistant
+   answer = unwrapped markdown with no card chrome. */
 .response-area .bubble {
-  max-width: 80%;
-  padding: 12px 16px;
-  border-radius: 14px;
-  font-size: 18px;
-  line-height: 1.6;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  font-size: var(--bubble-font-size, 18px);
+  line-height: 1.55;
   word-wrap: break-word;
 }
 .response-area .bubble.user {
-  background: var(--accent); color: white;
+  /* ChatGPT-style sent-message pill: rounded, right-aligned, subtle tinted fill. */
   align-self: flex-end;
+  max-width: 80%;
+  padding: 8px 14px;
+  background: rgba(120, 200, 160, 0.18);
+  color: rgba(255,255,255,0.95);
+  border: 1px solid rgba(120, 200, 160, 0.30);
+  border-radius: 16px;
   border-bottom-right-radius: 4px;
+  font-size: calc(var(--bubble-font-size, 18px) * 0.88);
+  line-height: 1.45;
+  margin-bottom: 4px;
 }
 .response-area .bubble.assistant {
-  background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.92);
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.06);
 }
-.response-area .bubble.assistant ul { margin: 0 0 8px 0; padding-left: 18px; }
+.response-area .bubble.assistant ul { margin: 0 0 8px 0; padding-left: 20px; }
 .response-area .bubble.assistant ul:last-child { margin-bottom: 0; }
 .response-area .bubble.assistant .script { white-space: pre-wrap; line-height: 1.55; }
 
-/* Each Q&A pair groups together visually */
 .response-area .turn {
-  display: flex; flex-direction: column; gap: 6px;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed rgba(255,255,255,0.06);
+  display: flex; flex-direction: column; gap: 4px;
+  padding-bottom: 10px;
 }
-.response-area .turn:last-child { border-bottom: none; padding-bottom: 0; }
+.response-area .turn:not(:last-child) {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.response-area .turn:last-child { padding-bottom: 0; }
 .response-area .turn.current { opacity: 0.95; }
 
 /* Stop-generating button — floats in the streaming turn */
@@ -1194,18 +1223,31 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .input-area .marked.tok:hover { background: rgba(54, 138, 247, 0.75); }
 
 /* Captions viewer — read-only tail of the cumulative transcript. */
+/* Top bar: captions (left half) and input note-card (right half), equal
+   widths, compact height. The response-area below scrolls independently. */
+.top-bar {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.top-bar > .captions-view,
+.top-bar > .note-card {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
 .captions-view {
   -webkit-app-region: no-drag;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
-  padding: 8px 12px;
-  flex: 0 1 90px;
-  min-height: 44px;
-  max-height: 110px;
+  padding: 6px 10px;
+  min-height: 70px;
+  max-height: 90px;
   overflow-y: auto;
-  line-height: 1.55;
-  font-size: 13px;
+  line-height: 1.45;
+  font-size: 12px;
   color: rgba(255,255,255,0.78);
   white-space: pre-wrap;
   word-break: break-word;
@@ -1247,8 +1289,8 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
-  height: 78px;
+  min-height: 70px;
+  max-height: 110px;
   overflow: hidden;
   transition: border-color 120ms ease;
 }
@@ -1269,7 +1311,7 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .note-card .note-input::placeholder { color: rgba(255,255,255,0.35); }
 .note-card .note-actions {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px;
+  padding: 4px 8px;
   border-top: 1px solid rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.02);
 }
@@ -1282,14 +1324,16 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .note-card .note-actions .clear-mark:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: white; }
 .note-card .note-actions .clear-mark:disabled { opacity: 0.35; cursor: not-allowed; }
-.note-card .note-actions .hint-label { font-size: 11px; color: rgba(255,255,255,0.55); margin-right: auto; }
-.note-card .note-actions .kbd {
-  font-size: 10px; color: rgba(255,255,255,0.55);
-  padding: 2px 6px; border-radius: 5px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.05);
-  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+.note-card .note-actions .actions-spacer { flex: 1 1 auto; }
+.note-card .note-actions .attach-btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 22px; border-radius: 6px;
+  background: transparent; color: rgba(255,255,255,0.65);
+  border: 1px solid rgba(255,255,255,0.10);
+  cursor: pointer;
 }
+.note-card .note-actions .attach-btn:hover { background: rgba(255,255,255,0.08); color: white; }
 .note-card .note-actions .send-btn {
   -webkit-app-region: no-drag;
   background: var(--accent); color: white; border: none;
@@ -1297,8 +1341,31 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
 }
-.note-card .note-actions .send-btn:hover { background: #1565c8; }
+.note-card .note-actions .send-btn:hover:not(:disabled) { background: #1565c8; }
 .note-card .note-actions .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Attachment row above the textarea — shows pasted/picked image thumbnails. */
+.note-card .attachment-row {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px 0;
+}
+.note-card .attachment {
+  position: relative;
+  width: 44px; height: 44px;
+  border-radius: 6px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.note-card .attachment img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.note-card .attachment-remove {
+  position: absolute; top: -4px; right: -4px;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: none; cursor: pointer;
+  background: rgba(0,0,0,0.75); color: #fff;
+  font-size: 11px; line-height: 1; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
 
 /* Auto-send toggle + silence progress */
 .ask-actions .auto-toggle {

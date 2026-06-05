@@ -1,4 +1,5 @@
 import type { AgendaItem, CompanyStatus, PipelineEntry, Profile, ProfileWithFiles, Session } from "@brandon/shared";
+import { DEFAULT_REALTIME_PROMPT } from "@brandon/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../lib/api";
 import { bridge } from "../lib/bridge";
@@ -26,9 +27,14 @@ export function App() {
     try { setKeyStatus(await api.getAnthropicKeyStatus()); } catch { /* silent */ }
   }, []);
   useEffect(() => { refreshKeyStatus(); }, [refreshKeyStatus]);
-  // Detectable = visible in screen capture. Default OFF (= invisible, stealth on).
+  // Detectable = visible in screen capture. On this Win11 GPU combo,
+  // setContentProtection(true) makes the overlay invisible to the user too —
+  // so default to detectable=TRUE (no content protection). User flips the
+  // toggle when they actually need stealth (e.g. mid-interview screen share).
   const [detectable, setDetectable] = useState<boolean>(() => {
-    try { return localStorage.getItem(DETECTABLE_KEY) === "true"; } catch { return false; }
+    const saved = (() => { try { return localStorage.getItem(DETECTABLE_KEY); } catch { return null; } })();
+    if (saved === null) return true;
+    return saved === "true";
   });
 
   useEffect(() => {
@@ -814,6 +820,22 @@ function StartInterviewModal({
   );
 }
 
+interface ProviderConfig {
+  id: api.ProviderName;
+  label: string;
+  placeholder: string;
+  hint: string;
+  prefix?: string;
+}
+const PROVIDER_CONFIGS: ProviderConfig[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", placeholder: "sk-ant-…",
+    hint: "Get one at console.anthropic.com → API Keys.", prefix: "sk-ant-" },
+  { id: "openai", label: "OpenAI (GPT)", placeholder: "sk-…",
+    hint: "Get one at platform.openai.com → API keys.", prefix: "sk-" },
+  { id: "gemini", label: "Google (Gemini)", placeholder: "AIza…",
+    hint: "Get one at aistudio.google.com → Get API key." },
+];
+
 function SettingsModal({
   initialStatus,
   onClose,
@@ -823,6 +845,65 @@ function SettingsModal({
   onClose: () => void;
   onSaved: (s: api.AnthropicKeyStatus) => void;
 }) {
+  // Current status per provider, loaded on mount.
+  const [statuses, setStatuses] = useState<Record<api.ProviderName, api.KeyStatus>>({
+    anthropic: initialStatus,
+    openai: { set: false, preview: null },
+    gemini: { set: false, preview: null },
+  });
+  useEffect(() => {
+    (async () => {
+      const [a, o, g] = await Promise.all([
+        api.getKeyStatus("anthropic"),
+        api.getKeyStatus("openai"),
+        api.getKeyStatus("gemini"),
+      ]);
+      setStatuses({ anthropic: a, openai: o, gemini: g });
+    })().catch(() => { /* silent; statuses keep initial */ });
+  }, []);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-header">
+          <h2>Settings · API keys</h2>
+          <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
+        </div>
+        <div className="modal-body">
+          <p className="modal-sub">
+            Keys are stored locally on this machine. Brandon only calls the providers you've
+            configured — set the one matching the model your active profile uses.
+          </p>
+          {PROVIDER_CONFIGS.map((cfg) => (
+            <ProviderKeyRow
+              key={cfg.id}
+              cfg={cfg}
+              status={statuses[cfg.id]}
+              onUpdated={(s) => {
+                setStatuses((prev) => ({ ...prev, [cfg.id]: s }));
+                if (cfg.id === "anthropic") onSaved(s); // keep parent banner in sync
+              }}
+            />
+          ))}
+          <GlobalDefaultsSection />
+        </div>
+        <div className="modal-actions">
+          <button onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProviderKeyRow({
+  cfg,
+  status,
+  onUpdated,
+}: {
+  cfg: ProviderConfig;
+  status: api.KeyStatus;
+  onUpdated: (s: api.KeyStatus) => void;
+}) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -831,76 +912,126 @@ function SettingsModal({
   const save = async () => {
     setBusy(true); setErr("");
     try {
-      const s = await api.setAnthropicKey(key.trim() || null);
-      onSaved(s);
-      onClose();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+      const s = await api.setProviderKey(cfg.id, key.trim() || null);
+      onUpdated(s); setKey("");
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
   };
-
   const clear = async () => {
-    if (!confirm("Remove the saved Anthropic API key?")) return;
+    if (!confirm(`Remove the saved ${cfg.label} key?`)) return;
     setBusy(true); setErr("");
     try {
-      const s = await api.setAnthropicKey(null);
-      onSaved(s);
-      onClose();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+      const s = await api.setProviderKey(cfg.id, null);
+      onUpdated(s); setKey("");
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Settings</h2>
-          <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
-        </div>
-        <div className="modal-body">
-          <p className="modal-sub">
-            Your Anthropic API key is stored locally on this machine and is only used to call
-            Claude on your behalf. Get one at console.anthropic.com → API Keys.
-          </p>
-          <div className="field">
-            <label>Current key</label>
-            <div style={{ color: "var(--text-dim)", fontSize: 13 }}>
-              {initialStatus.set ? <>Set · ending in <code>{initialStatus.preview}</code></> : <em>Not set</em>}
-            </div>
-          </div>
-          <div className="field">
-            <label>New API key</label>
-            <input
-              type={showVal ? "text" : "password"}
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="sk-ant-..."
-              autoFocus
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, marginTop: 6, color: "var(--text-dim)" }}>
-              <input type="checkbox" checked={showVal} onChange={(e) => setShowVal(e.target.checked)} />
-              Show key
-            </label>
-          </div>
-          {err && <div className="error" style={{ marginTop: 4 }}>{err}</div>}
-        </div>
-        <div className="modal-actions">
-          {initialStatus.set && (
-            <button onClick={clear} disabled={busy} style={{ color: "var(--danger)" }}>Clear saved key</button>
-          )}
-          <button onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary" onClick={save} disabled={busy || !key.trim()}>
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </div>
+    <div className="field" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
+      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{cfg.label}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 400, color: status.set ? "var(--accent-text)" : "var(--text-soft)" }}>
+          {status.set ? `set · ${status.preview}` : "not set"}
+        </span>
+      </label>
+      <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 2, marginBottom: 6 }}>{cfg.hint}</div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          type={showVal ? "text" : "password"}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder={cfg.placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          style={{ flex: 1 }}
+        />
+        <button className="primary" onClick={save} disabled={busy || !key.trim()}>
+          {busy ? "…" : "Save"}
+        </button>
+        {status.set && (
+          <button onClick={clear} disabled={busy} style={{ color: "var(--danger)" }} title="Clear saved key">Clear</button>
+        )}
       </div>
+      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11, marginTop: 4, color: "var(--text-dim)" }}>
+        <input type="checkbox" checked={showVal} onChange={(e) => setShowVal(e.target.checked)} />
+        Show
+      </label>
+      {err && <div className="error" style={{ marginTop: 4 }}>{err}</div>}
+    </div>
+  );
+}
+
+/**
+ * Global defaults editor — set voice sample + interview brief once. The
+ * prompt builder merges these into every profile (per-profile values still
+ * override / append).
+ */
+function GlobalDefaultsSection() {
+  const [voice, setVoice] = useState("");
+  const [brief, setBrief] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await api.getDefaults();
+        setVoice(d.defaultVoiceSample ?? "");
+        setBrief(d.defaultInterviewBrief ?? "");
+        setLoaded(true);
+      } catch (e) { setErr((e as Error).message); }
+    })();
+  }, []);
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      await api.saveDefaults({ defaultVoiceSample: voice, defaultInterviewBrief: brief });
+      setDirty(false);
+      setSavedAt(Date.now());
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const justSaved = savedAt !== null && Date.now() - savedAt < 1500;
+
+  return (
+    <div className="field" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 16 }}>
+      <label style={{ fontWeight: 600 }}>Global defaults</label>
+      <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 2, marginBottom: 8 }}>
+        Applied to every profile. The per-profile <em>voice sample</em> overrides this; per-profile
+        <em> interview brief</em> appends to it. Enter your background + persona once here.
+      </div>
+
+      <label style={{ display: "block", fontSize: 12, color: "var(--text-soft)", marginTop: 8 }}>Default voice sample</label>
+      <textarea
+        value={voice}
+        onChange={(e) => { setVoice(e.target.value); setDirty(true); }}
+        placeholder="Paste 100-300 words in your own voice — Slack messages, cover-letter intro, anything natural. Claude mirrors this tone in every profile."
+        style={{ width: "100%", minHeight: 90, marginTop: 4 }}
+        disabled={!loaded}
+      />
+
+      <label style={{ display: "block", fontSize: 12, color: "var(--text-soft)", marginTop: 10 }}>Default interview brief</label>
+      <textarea
+        value={brief}
+        onChange={(e) => { setBrief(e.target.value); setDirty(true); }}
+        placeholder={"Background, persona, hard constraints — things true across every interview.\n\nExamples:\n• Born in US, Chinese parents, grew up between US and China.\n• Currently a senior eng at <Company>; want fully remote next.\n• Hobbies: violin, football, Assassin's Creed, Hans Zimmer."}
+        style={{ width: "100%", minHeight: 140, marginTop: 4 }}
+        disabled={!loaded}
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+        <button className="primary" onClick={save} disabled={!dirty || busy}>
+          {busy ? "Saving…" : "Save defaults"}
+        </button>
+        {justSaved && <span style={{ fontSize: 12, color: "var(--accent-text)" }}>Saved</span>}
+      </div>
+      {err && <div className="error" style={{ marginTop: 4 }}>{err}</div>}
     </div>
   );
 }
@@ -1001,6 +1132,28 @@ function MeetingDetail({
             <span>{duration}</span>
           </div>
         </div>
+        {session.priorTurnsJson && (
+          <button
+            className="primary"
+            style={{ alignSelf: "flex-start" }}
+            onClick={() => {
+              try {
+                const turns = JSON.parse(session.priorTurnsJson ?? "[]");
+                if (!Array.isArray(turns) || turns.length === 0) {
+                  setError("No saved conversation to resume in this meeting.");
+                  return;
+                }
+                bridge.resumeOverlay(turns);
+                bridge.hideMainWindow();
+              } catch (e) {
+                setError("Couldn't parse the saved conversation: " + (e as Error).message);
+              }
+            }}
+            title="Re-open the overlay with this meeting's Q&A loaded as priorTurns — Brandon will remember what was discussed"
+          >
+            ▶ Resume conversation
+          </button>
+        )}
       </div>
 
       {error && <div className="error" style={{ padding: "8px 24px" }}>{error}</div>}
@@ -1250,7 +1403,16 @@ function ProfileEditor({
       </div>
 
       <div>
-        <div className="label">Real-time prompt</div>
+        <div className="label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Real-time prompt</span>
+          <button
+            className="outlined"
+            type="button"
+            onClick={() => setPrompt(DEFAULT_REALTIME_PROMPT)}
+            title="Replace the prompt with Brandon's default — keeps voice/persona consistent across modes"
+            style={{ fontSize: 11.5, padding: "3px 10px" }}
+          >Reset to default</button>
+        </div>
         <div className="prompt-card">
           <textarea
             value={prompt}
@@ -1404,11 +1566,24 @@ function ProfileEditor({
 
       <div>
         <div className="label">Model</div>
-        <select value={model} onChange={(e) => setModel(e.target.value as Profile["model"])} style={{ width: 280 }}>
-          <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-          <option value="claude-opus-4-7">Claude Opus 4.7</option>
-          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+        <select value={model} onChange={(e) => setModel(e.target.value as Profile["model"])} style={{ width: 320 }}>
+          <optgroup label="Anthropic">
+            <option value="claude-opus-4-8">Claude Opus 4.8</option>
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="claude-opus-4-7">Claude Opus 4.7</option>
+            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+          </optgroup>
+          <optgroup label="OpenAI">
+            <option value="gpt-5.5">GPT-5.5</option>
+          </optgroup>
+          <optgroup label="Google">
+            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (preview)</option>
+            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+          </optgroup>
         </select>
+        <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 4 }}>
+          The provider key must be set in Settings for the chosen model to work.
+        </div>
       </div>
 
       {localError && <div className="error">{localError}</div>}
