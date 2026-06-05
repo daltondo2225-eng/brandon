@@ -39,14 +39,6 @@ server/data/
 .DS_Store
 Thumbs.db
 
-# ---------- LCCopier C++ reference (Visual Studio output) ----------
-LCCopier_C/**/x64/
-LCCopier_C/**/Debug/
-LCCopier_C/**/Release/
-LCCopier_C/**/*.suo
-LCCopier_C/**/*.user
-LCCopier_C/**/.vs/
-
 # ---------- random scratch ----------
 *.bak
 *.tmp
