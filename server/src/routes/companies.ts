@@ -10,6 +10,7 @@ import {
 } from "../db/companies.js";
 import { db } from "../db/client.js";
 import { setSessionCompany } from "../db/sessions.js";
+import { requireActive } from "../auth/guards.js";
 
 const PatchBody = z.object({
   name: z.string().trim().min(1).optional(),
@@ -27,19 +28,21 @@ export async function registerCompanyRoutes(app: FastifyInstance): Promise<void>
   app.get("/companies", async (req, reply) => {
     const parsed = ListQuery.safeParse(req.query);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    return { companies: listPipeline(parsed.data.profileId) };
+    return { companies: listPipeline(req.user!.id, parsed.data.profileId) };
   });
 
   app.patch<{ Params: { id: string } }>("/companies/:id", async (req, reply) => {
+    if (requireActive(req, reply)) return;
     const parsed = PatchBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const updated = updateCompany(req.params.id, parsed.data as never);
+    const updated = updateCompany(req.params.id, parsed.data as never, req.user!.id);
     if (!updated) return reply.notFound("Company not found");
     return updated;
   });
 
   app.delete<{ Params: { id: string } }>("/companies/:id", async (req, reply) => {
-    if (!deleteCompany(req.params.id)) return reply.notFound("Company not found");
+    if (requireActive(req, reply)) return;
+    if (!deleteCompany(req.params.id, req.user!.id)) return reply.notFound("Company not found");
     return reply.code(204).send();
   });
 
@@ -49,15 +52,17 @@ export async function registerCompanyRoutes(app: FastifyInstance): Promise<void>
    * the parsed stage-suffix of the title ("Intro call with Mercury" → "Mercury").
    * Idempotent — safe to call repeatedly.
    */
-  app.post("/companies/backfill", async () => {
+  app.post("/companies/backfill", async (req, reply) => {
+    if (requireActive(req, reply)) return;
+    const userId = req.user!.id;
     interface SRow {
       id: string;
       title: string;
       target_company: string | null;
     }
     const rows = db.prepare(
-      `SELECT id, title, target_company FROM sessions WHERE company_id IS NULL`,
-    ).all() as unknown as SRow[];
+      `SELECT id, title, target_company FROM sessions WHERE company_id IS NULL AND user_id = ?`,
+    ).all(userId) as unknown as SRow[];
     let linked = 0;
     let created = 0;
     let skipped = 0;
@@ -66,10 +71,10 @@ export async function registerCompanyRoutes(app: FastifyInstance): Promise<void>
         .filter((n): n is string => !!n && !isJunkCompanyName(n));
       const name = candidates[0];
       if (!name) { skipped++; continue; }
-      const existing = findCompanyByName(name);
-      const company = existing ?? upsertCompanyByName(name);
+      const existing = findCompanyByName(name, userId);
+      const company = existing ?? upsertCompanyByName(name, userId);
       if (!existing) created++;
-      setSessionCompany(r.id, company.id);
+      setSessionCompany(r.id, company.id, userId);
       linked++;
     }
     return { linked, created, skipped, total: rows.length };
@@ -80,13 +85,15 @@ export async function registerCompanyRoutes(app: FastifyInstance): Promise<void>
    * backfill created — date placeholders, 2-letter strings, role labels.
    * Idempotent.
    */
-  app.post("/companies/prune", async () => {
+  app.post("/companies/prune", async (req, reply) => {
+    if (requireActive(req, reply)) return;
+    const userId = req.user!.id;
     interface CRow { id: string; name: string; }
-    const rows = db.prepare("SELECT id, name FROM companies").all() as unknown as CRow[];
+    const rows = db.prepare("SELECT id, name FROM companies WHERE user_id = ?").all(userId) as unknown as CRow[];
     let removed = 0;
     for (const r of rows) {
       if (isJunkCompanyName(r.name)) {
-        if (deleteCompany(r.id)) removed++;
+        if (deleteCompany(r.id, userId)) removed++;
       }
     }
     return { removed, scanned: rows.length };

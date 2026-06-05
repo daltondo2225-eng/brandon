@@ -1,9 +1,14 @@
 import type { AgendaItem, ChatChunk, ChatImage, ChatTurn, Company, CompanyStatus, PipelineEntry, Profile, ProfileWithFiles, ReferenceFile, Session } from "@brandon/shared";
-import { getConfig } from "./bridge";
+import { bridge, getConfig } from "./bridge";
+
+// Called when any request returns 401 (token missing/invalid/expired). The
+// AuthGate registers a handler that clears state and routes back to login.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void): void { onUnauthorized = fn; }
 
 async function authHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
-  const { apiKey } = await getConfig();
-  return { Authorization: `Bearer ${apiKey}`, ...(extra ?? {}) };
+  const token = (await bridge.getToken()) ?? "";
+  return { Authorization: `Bearer ${token}`, ...(extra ?? {}) };
 }
 
 async function jsonHeaders(): Promise<Record<string, string>> {
@@ -15,9 +20,21 @@ async function base(): Promise<string> {
   return serverBase;
 }
 
+/** Thrown for a 403 from a non-active account so the UI can show the pending screen. */
+export class PendingApprovalError extends Error {
+  constructor() { super("account_pending_approval"); this.name = "PendingApprovalError"; }
+}
+
 async function handle<T>(res: Response): Promise<T> {
+  if (res.status === 401) {
+    onUnauthorized?.();
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) {
     const text = await res.text();
+    if (res.status === 403 && text.includes("account_pending_approval")) {
+      throw new PendingApprovalError();
+    }
     throw new Error(`${res.status} ${text}`);
   }
   return res.json() as Promise<T>;
@@ -136,34 +153,61 @@ export async function deleteCompany(id: string): Promise<void> {
   if (!res.ok) throw new Error(`${res.status}`);
 }
 
-export interface KeyStatus { set: boolean; preview: string | null; }
-/** Backwards-compatible alias for callers that still use the old type name. */
-export type AnthropicKeyStatus = KeyStatus;
+// ── Auth ──────────────────────────────────────────────────────────────────
+export type UserStatus = "pending" | "active" | "disabled";
+export type UserRole = "user" | "superadmin";
+export interface AuthUser { id: string; email: string; role: UserRole; status: UserStatus; createdAt: number; }
 
-export type ProviderName = "anthropic" | "openai" | "gemini";
-const KEY_PATHS: Record<ProviderName, string> = {
-  anthropic: "/settings/anthropic",
-  openai: "/settings/openai",
-  gemini: "/settings/gemini",
-};
-
-export async function getKeyStatus(provider: ProviderName): Promise<KeyStatus> {
-  const res = await fetch(`${await base()}${KEY_PATHS[provider]}`, { headers: await authHeaders() });
-  return handle<KeyStatus>(res);
-}
-
-export async function setProviderKey(provider: ProviderName, key: string | null): Promise<KeyStatus> {
-  const res = await fetch(`${await base()}${KEY_PATHS[provider]}`, {
-    method: "PUT",
-    headers: await jsonHeaders(),
-    body: JSON.stringify({ apiKey: key }),
+/** POST without auth header (signup/login are public). On success stores the JWT. */
+async function authPost(path: string, body: unknown): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch(`${await base()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = text;
+    try { msg = JSON.parse(text).message ?? text; } catch { /* keep text */ }
+    throw new Error(msg || `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { token: string; user: AuthUser };
+  bridge.setToken(data.token);
+  return data;
+}
+
+export const signup = (email: string, password: string) => authPost("/auth/signup", { email, password });
+export const login = (email: string, password: string) => authPost("/auth/login", { email, password });
+
+export async function me(): Promise<AuthUser> {
+  const res = await fetch(`${await base()}/auth/me`, { headers: await authHeaders() });
+  const data = await handle<{ user: AuthUser }>(res);
+  return data.user;
+}
+
+export function logout(): void { bridge.clearToken(); }
+
+// ── Server key status (boolean only — keys are server-owned) ────────────────
+export interface KeyStatus { anthropicKeySet: boolean; openaiKeySet: boolean; geminiKeySet: boolean; }
+export async function getServerKeyStatus(): Promise<KeyStatus> {
+  const res = await fetch(`${await base()}/settings/status`, { headers: await authHeaders() });
   return handle<KeyStatus>(res);
 }
 
-// Old wrappers kept so the rest of the renderer doesn't need to be rewritten.
-export const getAnthropicKeyStatus = () => getKeyStatus("anthropic");
-export const setAnthropicKey = (k: string | null) => setProviderKey("anthropic", k);
+// ── Super-admin ─────────────────────────────────────────────────────────────
+export async function adminListUsers(): Promise<AuthUser[]> {
+  const res = await fetch(`${await base()}/admin/users`, { headers: await authHeaders() });
+  const data = await handle<{ users: AuthUser[] }>(res);
+  return data.users;
+}
+export async function adminApprove(id: string): Promise<void> {
+  const res = await fetch(`${await base()}/admin/users/${id}/approve`, { method: "POST", headers: await authHeaders() });
+  await handle<unknown>(res);
+}
+export async function adminDisable(id: string): Promise<void> {
+  const res = await fetch(`${await base()}/admin/users/${id}/disable`, { method: "POST", headers: await authHeaders() });
+  await handle<unknown>(res);
+}
 
 export interface GlobalDefaults {
   defaultInterviewBrief: string;

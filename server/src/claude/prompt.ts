@@ -1,6 +1,5 @@
 import type { ProfileWithFiles } from "@brandon/shared";
 import { listProfileFilesWithText } from "../db/profiles.js";
-import { getDefaultBrief, getDefaultVoiceSample } from "../db/settings.js";
 
 const BASE_INSTRUCTIONS = `You are Brandon, an invisible interview assistant. You are speaking AS the candidate
 during a live job interview. The interviewer just asked something; the candidate needs
@@ -192,6 +191,8 @@ export interface PromptInput {
   transcriptWindow: string;
   userIntent?: string;
   sessionContext?: { targetCompany: string | null; jobDescription: string | null };
+  /** The owning user's global defaults (applied to every profile they own). */
+  defaults?: { defaultInterviewBrief: string; defaultVoiceSample: string };
 }
 
 export interface SystemBlock {
@@ -224,7 +225,7 @@ export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean }
   // Voice sample: a per-profile sample OVERRIDES the global default so the user
   // can give a distinct tone per mode. If no per-profile sample, the global
   // default applies.
-  const voiceSample = input.profile.voiceSample?.trim() || getDefaultVoiceSample().trim();
+  const voiceSample = input.profile.voiceSample?.trim() || (input.defaults?.defaultVoiceSample ?? "").trim();
   const voiceBlock = voiceSample
     ? [
         "## Voice sample (the candidate's own words — MIRROR this tone, vocabulary, sentence length, quirks)",
@@ -239,7 +240,7 @@ export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean }
   // constraints) applies to EVERY profile; the per-profile brief is APPENDED
   // after it for mode-specific narrative. So personal info goes in Settings once
   // and per-profile briefs only carry the role-specific extras.
-  const defaultBrief = getDefaultBrief().trim();
+  const defaultBrief = (input.defaults?.defaultInterviewBrief ?? "").trim();
   const profileBrief = input.profile.interviewBrief?.trim() ?? "";
   const mergedBrief = [defaultBrief, profileBrief].filter(Boolean).join("\n\n");
   const briefBlock = mergedBrief

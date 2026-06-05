@@ -13,7 +13,7 @@ function client(): Anthropic {
   const key = getAnthropicKey();
   if (!key) {
     throw new Error(
-      "Anthropic API key not set. Open Brandon → Settings (gear icon in the sidebar footer) and paste your sk-ant-… key.",
+      "The server is missing its Anthropic API key — please contact the administrator.",
     );
   }
   // Rebuild client if the key changed (user updated it via Settings).
@@ -33,6 +33,8 @@ export interface StreamInput {
    *  coding panel, system-design board, etc.). Sent inline as base64 blocks. */
   images?: ChatImage[];
   sessionContext?: { targetCompany: string | null; jobDescription: string | null };
+  /** The owning user's global defaults (interview brief + voice sample). */
+  defaults?: { defaultInterviewBrief: string; defaultVoiceSample: string };
   onText: (text: string) => void;
   onDone: (usage: ChatUsage) => void;
   /**

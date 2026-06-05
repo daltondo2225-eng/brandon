@@ -22,30 +22,46 @@ mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const DB_PATH = resolve(DATA_DIR, "brandon.db");
 
-// Local API key — used by the Electron client to authenticate against the
-// loopback server. In production the Electron process generates one and passes
-// it via env. In dev we persist a stable key in the data dir so reloads don't
-// invalidate the client.
-function ensureLocalApiKey(): string {
-  const fromEnv = process.env.BRANDON_API_KEY?.trim();
-  if (fromEnv && fromEnv !== "change-me-to-a-random-string") return fromEnv;
+// JWT signing secret. MUST be set via BRANDON_JWT_SECRET in production (a
+// known/committed secret = token forgery = account takeover). For local dev we
+// persist a random secret in the data dir so sessions survive restarts, and
+// warn loudly that prod must provide its own.
+function ensureJwtSecret(): string {
+  const fromEnv = process.env.BRANDON_JWT_SECRET?.trim();
+  if (fromEnv) return fromEnv;
 
-  const keyFile = resolve(DATA_DIR, "brandon-api-key");
-  if (existsSync(keyFile)) {
-    const persisted = readFileSync(keyFile, "utf8").trim();
-    if (persisted) { process.env.BRANDON_API_KEY = persisted; return persisted; }
+  const file = resolve(DATA_DIR, "jwt-secret");
+  if (existsSync(file)) {
+    const persisted = readFileSync(file, "utf8").trim();
+    if (persisted) return persisted;
   }
-  const generated = randomBytes(24).toString("hex");
-  writeFileSync(keyFile, generated, "utf8");
-  process.env.BRANDON_API_KEY = generated;
+  const generated = randomBytes(48).toString("hex");
+  writeFileSync(file, generated, "utf8");
+  console.warn(
+    "[brandon] BRANDON_JWT_SECRET not set — generated a local dev secret. " +
+    "Set BRANDON_JWT_SECRET explicitly in production.",
+  );
   return generated;
 }
 
+// Comma-separated allowlist of extra CORS origins (e.g. a LAN client URL).
+const allowedOrigins = (process.env.BRANDON_ALLOWED_ORIGINS ?? "")
+  .split(",").map((s) => s.trim()).filter(Boolean);
+
 export const config = {
+  // Bind host: 127.0.0.1 for local-only; set BRANDON_HOST=0.0.0.0 to expose on LAN / a host.
+  host: process.env.BRANDON_HOST ?? "127.0.0.1",
   port: Number(process.env.PORT ?? 8787),
-  apiKey: ensureLocalApiKey(),
+  jwtSecret: ensureJwtSecret(),
+  // LLM provider keys are now SERVER-owned (the operator pays). From env only.
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
   extendedCache: process.env.BRANDON_EXTENDED_CACHE === "true",
+  // First-boot super-admin (created + owns pre-existing data by bootstrap.ts).
+  superadminEmail: process.env.BRANDON_SUPERADMIN_EMAIL?.trim() ?? "",
+  superadminPassword: process.env.BRANDON_SUPERADMIN_PASSWORD ?? "",
+  allowedOrigins,
   dataDir: DATA_DIR,
   dbPath: DB_PATH,
   uploadsDir: UPLOADS_DIR,

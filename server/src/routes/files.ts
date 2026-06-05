@@ -11,12 +11,14 @@ import {
   insertReferenceFile,
 } from "../db/profiles.js";
 import { extractByMime } from "../ingest/index.js";
+import { requireActive } from "../auth/guards.js";
 
 const SUPPORTED_MIME_SET = new Set<string>(SUPPORTED_MIME_TYPES);
 
 export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string } }>("/profiles/:id/files", async (req, reply) => {
-    const profile = getProfile(req.params.id);
+    if (requireActive(req, reply)) return;
+    const profile = getProfile(req.params.id, req.user!.id);
     if (!profile) return reply.notFound("Profile not found");
 
     const part = await req.file();
@@ -56,12 +58,13 @@ export async function registerFileRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.delete<{ Params: { fileId: string } }>("/files/:fileId", async (req, reply) => {
-    const existing = getReferenceFile(req.params.fileId);
+    if (requireActive(req, reply)) return;
+    const existing = getReferenceFile(req.params.fileId, req.user!.id);
     if (!existing) return reply.notFound("File not found");
     if (existsSync(existing.storagePath)) {
       try { unlinkSync(existing.storagePath); } catch (err) { app.log.warn({ err }, "failed to delete file from disk"); }
     }
-    deleteReferenceFile(req.params.fileId);
+    deleteReferenceFile(req.params.fileId, req.user!.id);
     return reply.code(204).send();
   });
 }

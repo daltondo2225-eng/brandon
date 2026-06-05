@@ -17,7 +17,11 @@ export interface ResumeTurn {
 }
 
 export interface BrandonBridge {
-  getConfig(): Promise<{ serverBase: string; apiKey: string }>;
+  getConfig(): Promise<{ serverBase: string }>;
+  setServerBase(url: string): void;
+  getToken(): Promise<string | null>;
+  setToken(token: string): void;
+  clearToken(): void;
   onHotkey(callback: (event: HotkeyEvent) => void): () => void;
   onCaptions(callback: (event: CaptionsEvent) => void): () => void;
   onMainRefresh(callback: () => void): () => void;
@@ -38,6 +42,10 @@ export interface BrandonBridge {
 
 const bridge: BrandonBridge = {
   getConfig: () => ipcRenderer.invoke("brandon:config"),
+  setServerBase: (url) => ipcRenderer.send("brandon:set-server-base", url),
+  getToken: () => ipcRenderer.invoke("brandon:get-token"),
+  setToken: (token) => ipcRenderer.send("brandon:set-token", token),
+  clearToken: () => ipcRenderer.send("brandon:clear-token"),
   onHotkey: (callback) => {
     const handler = (_e: unknown, event: HotkeyEvent) => callback(event);
     ipcRenderer.on("hotkey", handler);

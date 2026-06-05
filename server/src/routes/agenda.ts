@@ -10,6 +10,6 @@ export async function registerAgendaRoutes(app: FastifyInstance): Promise<void> 
   app.get("/agenda", async (req, reply) => {
     const parsed = ListQuery.safeParse(req.query);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    return { items: listAgenda(parsed.data.profileId) };
+    return { items: listAgenda(req.user!.id, parsed.data.profileId) };
   });
 }

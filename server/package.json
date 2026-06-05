@@ -16,6 +16,7 @@
     "@fastify/sensible": "^6.0.1",
     "dotenv": "^16.4.5",
     "fastify": "^5.1.0",
+    "jose": "^6.2.3",
     "mammoth": "^1.8.0",
     "nanoid": "^5.0.9",
     "openai": "^4.77.0",

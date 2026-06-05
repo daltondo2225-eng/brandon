@@ -14,7 +14,7 @@ function client(): OpenAI {
   const key = getGeminiKey();
   if (!key) {
     throw new Error(
-      "Google Gemini API key not set. Open Brandon → Settings (gear icon in the sidebar footer) and paste your AIza… key.",
+      "The server is missing its Google Gemini API key — please contact the administrator.",
     );
   }
   if (!_client || _clientKey !== key) {
@@ -31,6 +31,7 @@ export interface StreamInput {
   priorTurns?: ChatTurn[];
   images?: ChatImage[];
   sessionContext?: { targetCompany: string | null; jobDescription: string | null };
+  defaults?: { defaultInterviewBrief: string; defaultVoiceSample: string };
   onText: (text: string) => void;
   onDone: (usage: ChatUsage) => void;
   /** Accepted but ignored — code tools are Anthropic-only in this version. */

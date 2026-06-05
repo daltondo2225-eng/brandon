@@ -2,10 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { providerForModel } from "@brandon/shared";
 import { getProfile } from "../db/profiles.js";
+import { getUserDefaults } from "../db/users.js";
 import { findActiveSessionForProfile } from "../db/sessions.js";
 import { streamCompletion as streamAnthropic } from "../claude/client.js";
 import { streamCompletion as streamOpenAI } from "../openai/client.js";
 import { streamCompletion as streamGemini } from "../gemini/client.js";
+import { requireActive } from "../auth/guards.js";
+import { isAllowedOrigin } from "../cors.js";
 
 const ChatBody = z.object({
   profileId: z.string(),
@@ -23,17 +26,19 @@ const ChatBody = z.object({
 
 export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
   app.post("/chat", async (req, reply) => {
+    // Pending/disabled users can't spend the operator's LLM budget.
+    if (requireActive(req, reply)) return;
     const parsed = ChatBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const profile = getProfile(parsed.data.profileId);
+    const profile = getProfile(parsed.data.profileId, req.user!.id);
     if (!profile) return reply.notFound("Profile not found");
 
     // @fastify/cors normally sets these via reply.header(), but reply.raw.writeHead
-    // bypasses that — so we have to copy the CORS headers across by hand or the
-    // browser will reject the streaming response with "Failed to fetch".
+    // bypasses that — so we copy the CORS headers across by hand, using the SAME
+    // allowlist as the plugin (don't blindly echo the request's Origin).
     const origin = (req.headers.origin as string) || "";
     const corsHeaders: Record<string, string> = {};
-    if (origin) {
+    if (origin && isAllowedOrigin(origin)) {
       corsHeaders["Access-Control-Allow-Origin"] = origin;
       corsHeaders["Access-Control-Allow-Credentials"] = "true";
       corsHeaders["Vary"] = "Origin";
@@ -52,7 +57,8 @@ export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
 
     // Look up per-interview context (target company + job description) from the
     // most recent unended session for this profile. Set in the pre-interview modal.
-    const activeSession = findActiveSessionForProfile(profile.id);
+    const activeSession = findActiveSessionForProfile(profile.id, req.user!.id);
+    const defaults = getUserDefaults(req.user!.id);
     // Dispatch to the right provider's streamer based on the profile's chosen model.
     const provider = providerForModel(profile.model);
     const stream =
@@ -66,6 +72,7 @@ export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
         userIntent: parsed.data.userIntent,
         priorTurns: parsed.data.priorTurns ?? [],
         images: parsed.data.images,
+        defaults,
         sessionContext: activeSession
           ? { targetCompany: activeSession.targetCompany, jobDescription: activeSession.jobDescription }
           : undefined,

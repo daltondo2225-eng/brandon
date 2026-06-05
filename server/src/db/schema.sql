@@ -1,5 +1,22 @@
+-- Users (multi-tenant). Each row is an account; super-admin approves new signups.
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  email         TEXT NOT NULL,
+  -- lower(trim(email)) for case-insensitive uniqueness; PG-portable (no COLLATE).
+  email_key     TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,          -- "scrypt$N$r$p$saltB64$hashB64"
+  role          TEXT NOT NULL DEFAULT 'user',     -- 'user' | 'superadmin'
+  status        TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'active' | 'disabled'
+  default_interview_brief TEXT,         -- per-user default (moved off global settings)
+  default_voice_sample    TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS users_status_idx ON users(status);
+
 CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   name TEXT NOT NULL,
   realtime_prompt TEXT NOT NULL DEFAULT '',
   notes_template TEXT,
@@ -15,8 +32,10 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at INTEGER NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS profiles_active_unique
-  ON profiles(is_active) WHERE is_active = 1;
+-- NOTE: user_id indexes (profiles_user_idx, profiles_active_unique,
+-- companies_user_idx, companies_user_name_idx, sessions_user_idx) are created in
+-- client.ts AFTER the migration adds the user_id column — they can't live here
+-- because on an existing DB this file runs before that column exists.
 
 CREATE TABLE IF NOT EXISTS reference_files (
   id TEXT PRIMARY KEY,
@@ -41,6 +60,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
   title TEXT NOT NULL DEFAULT '',
   started_at INTEGER NOT NULL,
@@ -58,9 +78,10 @@ CREATE INDEX IF NOT EXISTS sessions_started_idx ON sessions(started_at DESC);
 -- Status is user-managed; the rest is aggregated from the company's sessions.
 CREATE TABLE IF NOT EXISTS companies (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   name TEXT NOT NULL,
   -- Case-insensitive canonical form for dedupe (lower-cased, trimmed).
-  name_key TEXT NOT NULL UNIQUE,
+  name_key TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active', -- 'active' | 'paused' | 'rejected' | 'offer'
   notes TEXT,
   created_at INTEGER NOT NULL,

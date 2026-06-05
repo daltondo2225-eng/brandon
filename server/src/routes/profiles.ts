@@ -12,6 +12,7 @@ import {
 } from "../db/profiles.js";
 // Identity extraction now goes through OpenAI (gpt-5.5) instead of Claude haiku.
 import { extractIdentityFromResume } from "../openai/client.js";
+import { requireActive } from "../auth/guards.js";
 
 const ModelEnum = z.enum(SUPPORTED_MODELS);
 
@@ -37,42 +38,47 @@ const UpdateBody = z.object({
 });
 
 export async function registerProfileRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/profiles", async () => ({ profiles: listProfiles() }));
+  app.get("/profiles", async (req) => ({ profiles: listProfiles(req.user!.id) }));
 
   app.get<{ Params: { id: string } }>("/profiles/:id", async (req, reply) => {
-    const profile = getProfile(req.params.id);
+    const profile = getProfile(req.params.id, req.user!.id);
     if (!profile) return reply.notFound("Profile not found");
     return profile;
   });
 
   app.post("/profiles", async (req, reply) => {
+    if (requireActive(req, reply)) return;
     const parsed = CreateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    return reply.code(201).send(createProfile(parsed.data));
+    return reply.code(201).send(createProfile(parsed.data, req.user!.id));
   });
 
   app.patch<{ Params: { id: string } }>("/profiles/:id", async (req, reply) => {
+    if (requireActive(req, reply)) return;
     const parsed = UpdateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const updated = updateProfile(req.params.id, parsed.data);
+    const updated = updateProfile(req.params.id, parsed.data, req.user!.id);
     if (!updated) return reply.notFound("Profile not found");
     return updated;
   });
 
   app.delete<{ Params: { id: string } }>("/profiles/:id", async (req, reply) => {
-    if (!deleteProfile(req.params.id)) return reply.notFound("Profile not found");
+    if (requireActive(req, reply)) return;
+    if (!deleteProfile(req.params.id, req.user!.id)) return reply.notFound("Profile not found");
     return reply.code(204).send();
   });
 
   app.post<{ Params: { id: string } }>("/profiles/:id/activate", async (req, reply) => {
-    const activated = activateProfile(req.params.id);
+    if (requireActive(req, reply)) return;
+    const activated = activateProfile(req.params.id, req.user!.id);
     if (!activated) return reply.notFound("Profile not found");
     return activated;
   });
 
-  // Use Claude to extract jobTitle / company / location from the resume(s).
+  // Use OpenAI to extract jobTitle / company / location from the resume(s).
   app.post<{ Params: { id: string } }>("/profiles/:id/extract-identity", async (req, reply) => {
-    const profile = getProfile(req.params.id);
+    if (requireActive(req, reply)) return;
+    const profile = getProfile(req.params.id, req.user!.id);
     if (!profile) return reply.notFound("Profile not found");
     const files = listProfileFilesWithText(profile.id);
     if (files.length === 0) {
@@ -87,7 +93,7 @@ export async function registerProfileRoutes(app: FastifyInstance): Promise<void>
       jobTitle: id.jobTitle,
       company: id.company,
       location: id.location,
-    });
+    }, req.user!.id);
     return updated;
   });
 }

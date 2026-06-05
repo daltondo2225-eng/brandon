@@ -35,23 +35,24 @@ function toSession(r: Row): Session {
   };
 }
 
-export function listSessions(profileId?: string, limit = 50): Session[] {
+export function listSessions(userId: string, profileId?: string, limit = 50): Session[] {
   const rows = profileId
     ? asRows<Row>(
-        db.prepare("SELECT * FROM sessions WHERE profile_id = ? ORDER BY started_at DESC LIMIT ?").all(profileId, limit),
+        db.prepare("SELECT * FROM sessions WHERE user_id = ? AND profile_id = ? ORDER BY started_at DESC LIMIT ?").all(userId, profileId, limit),
       )
     : asRows<Row>(
-        db.prepare("SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?").all(limit),
+        db.prepare("SELECT * FROM sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT ?").all(userId, limit),
       );
   return rows.map(toSession);
 }
 
-export function getSession(id: string): Session | null {
-  const r = asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ?").get(id));
+export function getSession(id: string, userId: string): Session | null {
+  const r = asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?").get(id, userId));
   return r ? toSession(r) : null;
 }
 
 export function createSession(
+  userId: string,
   profileId: string | null,
   title: string,
   targetCompany: string | null = null,
@@ -61,23 +62,23 @@ export function createSession(
   const id = nanoid(12);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO sessions (id, profile_id, title, started_at, ended_at, target_company, job_description, company_id)
-     VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
-  ).run(id, profileId, title || "Untitled meeting", now, targetCompany, jobDescription, companyId);
+    `INSERT INTO sessions (id, user_id, profile_id, title, started_at, ended_at, target_company, job_description, company_id)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+  ).run(id, userId, profileId, title || "Untitled meeting", now, targetCompany, jobDescription, companyId);
   return toSession(asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ?").get(id))!);
 }
 
-/** Link a session to a company. Pass null to detach. */
-export function setSessionCompany(sessionId: string, companyId: string | null): void {
-  db.prepare("UPDATE sessions SET company_id = ? WHERE id = ?").run(companyId, sessionId);
+/** Link a session to a company. Pass null to detach. Scoped to the owner. */
+export function setSessionCompany(sessionId: string, companyId: string | null, userId: string): void {
+  db.prepare("UPDATE sessions SET company_id = ? WHERE id = ? AND user_id = ?").run(companyId, sessionId, userId);
 }
 
 /** Find the most recent unended session for a profile (used by /chat to look up context). */
-export function findActiveSessionForProfile(profileId: string): Session | null {
+export function findActiveSessionForProfile(profileId: string, userId: string): Session | null {
   const r = asRow<Row>(
     db.prepare(
-      "SELECT * FROM sessions WHERE profile_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
-    ).get(profileId),
+      "SELECT * FROM sessions WHERE profile_id = ? AND user_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+    ).get(profileId, userId),
   );
   return r ? toSession(r) : null;
 }
@@ -93,8 +94,8 @@ export interface UpdateSessionInput {
   priorTurnsJson?: string | null;
 }
 
-export function updateSession(id: string, input: UpdateSessionInput): Session | null {
-  const existing = asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ?").get(id));
+export function updateSession(id: string, input: UpdateSessionInput, userId: string): Session | null {
+  const existing = asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ? AND user_id = ?").get(id, userId));
   if (!existing) return null;
   db.prepare(
     `UPDATE sessions
@@ -104,7 +105,7 @@ export function updateSession(id: string, input: UpdateSessionInput): Session | 
          recap = ?,
          next_steps_json = ?,
          prior_turns_json = ?
-     WHERE id = ?`,
+     WHERE id = ? AND user_id = ?`,
   ).run(
     input.title ?? null,
     input.endedAt === undefined ? existing.ended_at : input.endedAt,
@@ -113,11 +114,12 @@ export function updateSession(id: string, input: UpdateSessionInput): Session | 
     input.nextStepsJson === undefined ? existing.next_steps_json : input.nextStepsJson,
     input.priorTurnsJson === undefined ? existing.prior_turns_json : input.priorTurnsJson,
     id,
+    userId,
   );
   return toSession(asRow<Row>(db.prepare("SELECT * FROM sessions WHERE id = ?").get(id))!);
 }
 
-export function deleteSession(id: string): boolean {
-  const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+export function deleteSession(id: string, userId: string): boolean {
+  const result = db.prepare("DELETE FROM sessions WHERE id = ? AND user_id = ?").run(id, userId);
   return Number(result.changes) > 0;
 }

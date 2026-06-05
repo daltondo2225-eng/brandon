@@ -31,40 +31,40 @@ export function normalizeCompanyName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-export function listCompanies(): Company[] {
+export function listCompanies(userId: string): Company[] {
   return asRows<Row>(
-    db.prepare("SELECT * FROM companies ORDER BY updated_at DESC").all(),
+    db.prepare("SELECT * FROM companies WHERE user_id = ? ORDER BY updated_at DESC").all(userId),
   ).map(toCompany);
 }
 
-export function getCompany(id: string): Company | null {
-  const r = asRow<Row>(db.prepare("SELECT * FROM companies WHERE id = ?").get(id));
+export function getCompany(id: string, userId: string): Company | null {
+  const r = asRow<Row>(db.prepare("SELECT * FROM companies WHERE id = ? AND user_id = ?").get(id, userId));
   return r ? toCompany(r) : null;
 }
 
-export function findCompanyByName(name: string): Company | null {
+export function findCompanyByName(name: string, userId: string): Company | null {
   const key = normalizeCompanyName(name);
   if (!key) return null;
-  const r = asRow<Row>(db.prepare("SELECT * FROM companies WHERE name_key = ?").get(key));
+  const r = asRow<Row>(db.prepare("SELECT * FROM companies WHERE name_key = ? AND user_id = ?").get(key, userId));
   return r ? toCompany(r) : null;
 }
 
-export function createCompany(name: string, status: CompanyStatus = "active"): Company {
+export function createCompany(name: string, userId: string, status: CompanyStatus = "active"): Company {
   const clean = name.trim();
   if (!clean) throw new Error("Company name cannot be empty");
   const key = normalizeCompanyName(clean);
   const id = nanoid(12);
   const now = Date.now();
   db.prepare(
-    `INSERT INTO companies (id, name, name_key, status, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, NULL, ?, ?)`,
-  ).run(id, clean, key, status, now, now);
+    `INSERT INTO companies (id, user_id, name, name_key, status, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+  ).run(id, userId, clean, key, status, now, now);
   return toCompany(asRow<Row>(db.prepare("SELECT * FROM companies WHERE id = ?").get(id))!);
 }
 
-/** Find by name, creating if missing. The canonical case is "first one wins". */
-export function upsertCompanyByName(name: string): Company {
-  return findCompanyByName(name) ?? createCompany(name);
+/** Find by name (per user), creating if missing. The canonical case is "first one wins". */
+export function upsertCompanyByName(name: string, userId: string): Company {
+  return findCompanyByName(name, userId) ?? createCompany(name, userId);
 }
 
 export interface UpdateCompanyInput {
@@ -73,8 +73,8 @@ export interface UpdateCompanyInput {
   notes?: string | null;
 }
 
-export function updateCompany(id: string, input: UpdateCompanyInput): Company | null {
-  const existing = asRow<Row>(db.prepare("SELECT * FROM companies WHERE id = ?").get(id));
+export function updateCompany(id: string, input: UpdateCompanyInput, userId: string): Company | null {
+  const existing = asRow<Row>(db.prepare("SELECT * FROM companies WHERE id = ? AND user_id = ?").get(id, userId));
   if (!existing) return null;
   const newName = input.name?.trim();
   const newKey = newName ? normalizeCompanyName(newName) : null;
@@ -85,7 +85,7 @@ export function updateCompany(id: string, input: UpdateCompanyInput): Company | 
             status = COALESCE(?, status),
             notes = ?,
             updated_at = ?
-      WHERE id = ?`,
+      WHERE id = ? AND user_id = ?`,
   ).run(
     newName ?? null,
     newKey,
@@ -93,13 +93,14 @@ export function updateCompany(id: string, input: UpdateCompanyInput): Company | 
     input.notes === undefined ? existing.notes : input.notes,
     Date.now(),
     id,
+    userId,
   );
   return toCompany(asRow<Row>(db.prepare("SELECT * FROM companies WHERE id = ?").get(id))!);
 }
 
-export function deleteCompany(id: string): boolean {
+export function deleteCompany(id: string, userId: string): boolean {
   // Sessions with this company_id will be set NULL by the FK constraint.
-  const r = db.prepare("DELETE FROM companies WHERE id = ?").run(id);
+  const r = db.prepare("DELETE FROM companies WHERE id = ? AND user_id = ?").run(id, userId);
   return Number(r.changes) > 0;
 }
 
@@ -118,26 +119,26 @@ interface SessionAggRow {
  * sessions for that profile count — companies with no sessions under this
  * profile are omitted entirely.
  */
-export function listPipeline(profileId?: string): PipelineEntry[] {
-  const companies = listCompanies();
+export function listPipeline(userId: string, profileId?: string): PipelineEntry[] {
+  const companies = listCompanies(userId);
   if (companies.length === 0) return [];
-  // Pull all relevant sessions in one query so we don't N+1.
+  // Pull all relevant sessions in one query so we don't N+1. Scoped to the user.
   const rows = profileId
     ? asRows<SessionAggRow>(
         db.prepare(
           `SELECT id, title, started_at, ended_at, recap, company_id
              FROM sessions
-            WHERE company_id IS NOT NULL AND profile_id = ?
+            WHERE company_id IS NOT NULL AND user_id = ? AND profile_id = ?
             ORDER BY started_at DESC`,
-        ).all(profileId),
+        ).all(userId, profileId),
       )
     : asRows<SessionAggRow>(
         db.prepare(
           `SELECT id, title, started_at, ended_at, recap, company_id
              FROM sessions
-            WHERE company_id IS NOT NULL
+            WHERE company_id IS NOT NULL AND user_id = ?
             ORDER BY started_at DESC`,
-        ).all(),
+        ).all(userId),
       );
   const byCompany = new Map<string, SessionAggRow[]>();
   for (const r of rows) {

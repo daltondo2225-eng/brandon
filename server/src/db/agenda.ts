@@ -18,7 +18,7 @@ function asRows<T>(v: unknown): T[] { return v as T[]; }
  * optionally scoped to one profile. Items without `dueDate` are excluded —
  * the calendar only renders dated things.
  */
-export function listAgenda(profileId?: string): AgendaItem[] {
+export function listAgenda(userId: string, profileId?: string): AgendaItem[] {
   const rows = profileId
     ? asRows<Row>(
         db.prepare(
@@ -26,9 +26,9 @@ export function listAgenda(profileId?: string): AgendaItem[] {
                   c.name AS company_name
              FROM sessions s
              LEFT JOIN companies c ON c.id = s.company_id
-            WHERE s.next_steps_json IS NOT NULL AND s.profile_id = ?
+            WHERE s.next_steps_json IS NOT NULL AND s.user_id = ? AND s.profile_id = ?
             ORDER BY s.started_at DESC`,
-        ).all(profileId),
+        ).all(userId, profileId),
       )
     : asRows<Row>(
         db.prepare(
@@ -36,9 +36,9 @@ export function listAgenda(profileId?: string): AgendaItem[] {
                   c.name AS company_name
              FROM sessions s
              LEFT JOIN companies c ON c.id = s.company_id
-            WHERE s.next_steps_json IS NOT NULL
+            WHERE s.next_steps_json IS NOT NULL AND s.user_id = ?
             ORDER BY s.started_at DESC`,
-        ).all(),
+        ).all(userId),
       );
 
   const items: AgendaItem[] = [];

@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import { join, resolve } from "node:path";
 import { onCaptionsEvent, startCaptionsSidecar, stopCaptionsSidecar } from "./captions";
-import { startServer, stopServer, type ServerHandle } from "./server";
+import { clearToken, getServerBase, getToken, setServerBase, setToken } from "./server";
 
 const isDev = !app.isPackaged;
 
@@ -12,8 +12,6 @@ const isDev = !app.isPackaged;
 // reliably and lets us keep the original pill-floats-over-desktop look.
 app.disableHardwareAcceleration();
 
-// Server handle, populated during app.whenReady() before any window is created.
-let serverHandle: ServerHandle = { baseUrl: "http://127.0.0.1:8787", apiKey: "" };
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
@@ -161,17 +159,9 @@ function send(target: BrowserWindow | null, channel: string, payload: unknown): 
 }
 
 app.whenReady().then(async () => {
-  try {
-    serverHandle = await startServer();
-  } catch (err) {
-    dialog.showErrorBox(
-      "Brandon — server failed to start",
-      `${(err as Error).message}\n\nSee ${app.getPath("userData")}\\server.log for details.`,
-    );
-    app.quit();
-    return;
-  }
-
+  // No local server to spawn anymore — Brandon connects to a remote/local
+  // multi-tenant server. The renderer's login screen handles connectivity; the
+  // app launches regardless so the user can fix the server URL if it's wrong.
   mainWindow = createMainWindow();
   overlayWindow = createOverlayWindow();
   // Overlay starts hidden — the main window's Start button reveals it.
@@ -189,10 +179,13 @@ app.whenReady().then(async () => {
     send(overlayWindow, "hotkey", { type: "clear-transcript" });
   });
 
-  ipcMain.handle("brandon:config", () => ({
-    serverBase: serverHandle.baseUrl,
-    apiKey: serverHandle.apiKey,
-  }));
+  // Config: the configurable server URL (no apiKey — auth is a JWT now).
+  ipcMain.handle("brandon:config", () => ({ serverBase: getServerBase() }));
+  ipcMain.on("brandon:set-server-base", (_e, url: string) => setServerBase(url));
+  // JWT storage (OS-keychain via safeStorage in server.ts).
+  ipcMain.handle("brandon:get-token", () => getToken());
+  ipcMain.on("brandon:set-token", (_e, token: string) => setToken(token));
+  ipcMain.on("brandon:clear-token", () => clearToken());
 
   ipcMain.on("overlay:set-mouse-passthrough", (_e, passthrough: boolean) => {
     if (!overlayWindow) return;
@@ -294,5 +287,4 @@ app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   stopCaptionsSidecar();
-  stopServer();
 });

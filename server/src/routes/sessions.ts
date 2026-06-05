@@ -13,6 +13,7 @@ import { getProfile } from "../db/profiles.js";
 // Recaps now go through OpenAI (gpt-5.5). Switched from Claude haiku to put
 // the user's OpenAI quota to work for the heavier transcript summarisation.
 import { generateRecap } from "../openai/client.js";
+import { requireActive } from "../auth/guards.js";
 
 const CreateBody = z.object({
   profileId: z.string().nullable().optional(),
@@ -38,20 +39,21 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
   app.get("/sessions", async (req, reply) => {
     const parsed = ListQuery.safeParse(req.query);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    return { sessions: listSessions(parsed.data.profileId, parsed.data.limit) };
+    return { sessions: listSessions(req.user!.id, parsed.data.profileId, parsed.data.limit) };
   });
 
   app.get<{ Params: { id: string } }>("/sessions/:id", async (req, reply) => {
-    const s = getSession(req.params.id);
+    const s = getSession(req.params.id, req.user!.id);
     if (!s) return reply.notFound("Session not found");
     return s;
   });
 
   app.post("/sessions", async (req, reply) => {
+    if (requireActive(req, reply)) return;
     const parsed = CreateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     if (parsed.data.profileId) {
-      const profile = getProfile(parsed.data.profileId);
+      const profile = getProfile(parsed.data.profileId, req.user!.id);
       if (!profile) return reply.notFound("Profile not found");
     }
     const title = parsed.data.title?.trim() || defaultTitle();
@@ -59,8 +61,9 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     // the session to a Company row (creating one if it's a new opportunity).
     let companyId: string | null = null;
     const targetCompany = parsed.data.targetCompany?.trim() ?? null;
-    if (targetCompany) companyId = upsertCompanyByName(targetCompany).id;
+    if (targetCompany) companyId = upsertCompanyByName(targetCompany, req.user!.id).id;
     const s = createSession(
+      req.user!.id,
       parsed.data.profileId ?? null,
       title,
       targetCompany,
@@ -71,21 +74,24 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
   });
 
   app.patch<{ Params: { id: string } }>("/sessions/:id", async (req, reply) => {
+    if (requireActive(req, reply)) return;
     const parsed = UpdateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const s = updateSession(req.params.id, parsed.data);
+    const s = updateSession(req.params.id, parsed.data, req.user!.id);
     if (!s) return reply.notFound("Session not found");
     return s;
   });
 
   app.delete<{ Params: { id: string } }>("/sessions/:id", async (req, reply) => {
-    if (!deleteSession(req.params.id)) return reply.notFound("Session not found");
+    if (requireActive(req, reply)) return;
+    if (!deleteSession(req.params.id, req.user!.id)) return reply.notFound("Session not found");
     return reply.code(204).send();
   });
 
-  // Generate (or regenerate) a Claude recap + auto-title for a session.
+  // Generate (or regenerate) a recap + auto-title for a session.
   app.post<{ Params: { id: string } }>("/sessions/:id/recap", async (req, reply) => {
-    const s = getSession(req.params.id);
+    if (requireActive(req, reply)) return;
+    const s = getSession(req.params.id, req.user!.id);
     if (!s) return reply.notFound("Session not found");
     if (!s.transcript || s.transcript.trim().length < 10) {
       return reply.badRequest("Session has no transcript to summarise");
@@ -105,7 +111,7 @@ export async function registerSessionRoutes(app: FastifyInstance): Promise<void>
     if (title && (s.title.startsWith("Meeting") || s.title.trim().length === 0)) {
       patch.title = title;
     }
-    const updated = updateSession(req.params.id, patch);
+    const updated = updateSession(req.params.id, patch, req.user!.id);
     return updated;
   });
 }

@@ -2,7 +2,7 @@ import type { AgendaItem, CompanyStatus, PipelineEntry, Profile, ProfileWithFile
 import { DEFAULT_REALTIME_PROMPT } from "@brandon/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../lib/api";
-import { bridge } from "../lib/bridge";
+import { bridge, getConfig, resetConfigCache } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
 
 const DETECTABLE_KEY = "brandon.detectable";
@@ -11,7 +11,7 @@ const SUPPORTED_EXTENSIONS = ".pdf,.docx,.txt,.md";
 
 type View = "home" | "settings" | "meeting";
 
-export function App() {
+function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogout: () => void }) {
   const [view, setView] = useState<View>("home");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -20,13 +20,9 @@ export function App() {
   const [openMeetingId, setOpenMeetingId] = useState<string | null>(null);
   const [pendingStartProfile, setPendingStartProfile] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [keyStatus, setKeyStatus] = useState<api.AnthropicKeyStatus>({ set: false, preview: null });
+  const [adminOpen, setAdminOpen] = useState(false);
   const [error, setError] = useState<string>("");
 
-  const refreshKeyStatus = useCallback(async () => {
-    try { setKeyStatus(await api.getAnthropicKeyStatus()); } catch { /* silent */ }
-  }, []);
-  useEffect(() => { refreshKeyStatus(); }, [refreshKeyStatus]);
   // Detectable = visible in screen capture. On this Win11 GPU combo,
   // setContentProtection(true) makes the overlay invisible to the user too —
   // so default to detectable=TRUE (no content protection). User flips the
@@ -166,16 +162,16 @@ export function App() {
   ) : null;
 
   const settingsModal = settingsOpen ? (
-    <SettingsModal
-      initialStatus={keyStatus}
-      onClose={() => setSettingsOpen(false)}
-      onSaved={(s) => { setKeyStatus(s); }}
-    />
+    <SettingsModal onClose={() => setSettingsOpen(false)} />
+  ) : null;
+
+  const adminModal = adminOpen ? (
+    <AdminPanel onClose={() => setAdminOpen(false)} currentUserId={currentUser.id} />
   ) : null;
 
   if (view === "home") {
     return (
-      <>{startModal}{settingsModal}<HomeView
+      <>{startModal}{settingsModal}{adminModal}<HomeView
         profiles={profiles}
         activeProfile={activeProfile}
         sessions={allSessions}
@@ -183,7 +179,9 @@ export function App() {
         agenda={agenda}
         openMeetingId={openMeetingId}
         detectable={detectable}
-        keyStatus={keyStatus}
+        currentUser={currentUser}
+        onLogout={onLogout}
+        onOpenAdmin={() => setAdminOpen(true)}
         onToggleDetectable={() => setDetectable((v) => !v)}
         onStart={() => activeProfile && startInterview(activeProfile.id)}
         onOpenSettings={() => setView("settings")}
@@ -290,7 +288,9 @@ function HomeView({
   agenda,
   openMeetingId,
   detectable,
-  keyStatus,
+  currentUser,
+  onLogout,
+  onOpenAdmin,
   onToggleDetectable,
   onStart,
   onOpenSettings,
@@ -309,7 +309,9 @@ function HomeView({
   agenda: AgendaItem[];
   openMeetingId: string | null;
   detectable: boolean;
-  keyStatus: api.AnthropicKeyStatus;
+  currentUser: api.AuthUser;
+  onLogout: () => void;
+  onOpenAdmin: () => void;
   onToggleDetectable: () => void;
   onStart: () => void;
   onOpenSettings: () => void;
@@ -324,7 +326,6 @@ function HomeView({
   const [picker, setPicker] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"pipeline" | "meetings">("pipeline");
   const grouped = groupSessionsByDay(sessions);
-  const needsKey = !keyStatus.set;
 
   return (
     <div className="chat-layout">
@@ -431,26 +432,29 @@ function HomeView({
             Manage modes & files →
           </button>
           <button
-            className={`link-settings small${needsKey ? " warn" : ""}`}
+            className="link-settings small"
             onClick={onOpenApiSettings}
-            title={needsKey ? "Anthropic API key is not set" : `Key set (${keyStatus.preview ?? ""})`}
+            title="Default profile info (brief + voice)"
             style={{ display: "flex", alignItems: "center", gap: 6 }}
           >
             {gearIcon}
-            <span>{needsKey ? "Set Anthropic API key" : "Settings"}</span>
+            <span>Settings</span>
           </button>
+          {currentUser.role === "superadmin" && (
+            <button className="link-settings small" onClick={onOpenAdmin}
+              style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span>Admin · users</span>
+            </button>
+          )}
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span title={currentUser.email}>{currentUser.email}</span>
+            <button className="link-settings small" onClick={onLogout}>Log out</button>
+          </div>
         </div>
       </aside>
 
       {/* ----------- MAIN: meeting detail or welcome ----------- */}
       <main className="chat-main">
-        {needsKey && (
-          <div className="key-banner">
-            <strong>Anthropic API key not set.</strong>
-            <span>Brandon needs your <code>sk-ant-…</code> key to call Claude. Set it once and it's stored locally.</span>
-            <button className="primary" onClick={onOpenApiSettings}>Open Settings</button>
-          </div>
-        )}
         <CalendarStrip
           items={agenda}
           onOpenMeeting={onOpenMeeting}
@@ -462,7 +466,7 @@ function HomeView({
             onBack={onCloseMeeting}
           />
         ) : (
-          <WelcomePane activeProfile={activeProfile} onStart={onStart} disabled={needsKey} />
+          <WelcomePane activeProfile={activeProfile} onStart={onStart} disabled={false} />
         )}
         {error && <div className="error" style={{ padding: "8px 24px" }}>{error}</div>}
       </main>
@@ -820,144 +824,45 @@ function StartInterviewModal({
   );
 }
 
-interface ProviderConfig {
-  id: api.ProviderName;
-  label: string;
-  placeholder: string;
-  hint: string;
-  prefix?: string;
-}
-const PROVIDER_CONFIGS: ProviderConfig[] = [
-  { id: "anthropic", label: "Anthropic (Claude)", placeholder: "sk-ant-…",
-    hint: "Get one at console.anthropic.com → API Keys.", prefix: "sk-ant-" },
-  { id: "openai", label: "OpenAI (GPT)", placeholder: "sk-…",
-    hint: "Get one at platform.openai.com → API keys.", prefix: "sk-" },
-  { id: "gemini", label: "Google (Gemini)", placeholder: "AIza…",
-    hint: "Get one at aistudio.google.com → Get API key." },
-];
-
-function SettingsModal({
-  initialStatus,
-  onClose,
-  onSaved,
-}: {
-  initialStatus: api.AnthropicKeyStatus;
-  onClose: () => void;
-  onSaved: (s: api.AnthropicKeyStatus) => void;
-}) {
-  // Current status per provider, loaded on mount.
-  const [statuses, setStatuses] = useState<Record<api.ProviderName, api.KeyStatus>>({
-    anthropic: initialStatus,
-    openai: { set: false, preview: null },
-    gemini: { set: false, preview: null },
-  });
+function SettingsModal({ onClose }: { onClose: () => void }) {
+  // Server key availability (boolean only — keys are server-owned, you pay).
+  const [keys, setKeys] = useState<api.KeyStatus | null>(null);
   useEffect(() => {
-    (async () => {
-      const [a, o, g] = await Promise.all([
-        api.getKeyStatus("anthropic"),
-        api.getKeyStatus("openai"),
-        api.getKeyStatus("gemini"),
-      ]);
-      setStatuses({ anthropic: a, openai: o, gemini: g });
-    })().catch(() => { /* silent; statuses keep initial */ });
+    api.getServerKeyStatus().then(setKeys).catch(() => { /* silent */ });
   }, []);
+
+  const providerLine = (label: string, ok: boolean | undefined) => (
+    <span style={{ display: "inline-flex", gap: 5, alignItems: "center", marginRight: 14 }}>
+      <span style={{ color: ok ? "#4caf50" : "var(--text-soft)" }}>{ok ? "●" : "○"}</span>
+      {label}
+    </span>
+  );
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
         <div className="modal-header">
-          <h2>Settings · API keys</h2>
+          <h2>Settings</h2>
           <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
         </div>
         <div className="modal-body">
           <p className="modal-sub">
-            Keys are stored locally on this machine. Brandon only calls the providers you've
-            configured — set the one matching the model your active profile uses.
+            AI models are provided by the server — you don't need to enter any API keys.
           </p>
-          {PROVIDER_CONFIGS.map((cfg) => (
-            <ProviderKeyRow
-              key={cfg.id}
-              cfg={cfg}
-              status={statuses[cfg.id]}
-              onUpdated={(s) => {
-                setStatuses((prev) => ({ ...prev, [cfg.id]: s }));
-                if (cfg.id === "anthropic") onSaved(s); // keep parent banner in sync
-              }}
-            />
-          ))}
+          <div className="field" style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
+            <label>Models available on this server</label>
+            <div style={{ marginTop: 4 }}>
+              {providerLine("Claude", keys?.anthropicKeySet)}
+              {providerLine("GPT", keys?.openaiKeySet)}
+              {providerLine("Gemini", keys?.geminiKeySet)}
+            </div>
+          </div>
           <GlobalDefaultsSection />
         </div>
         <div className="modal-actions">
           <button onClick={onClose}>Close</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ProviderKeyRow({
-  cfg,
-  status,
-  onUpdated,
-}: {
-  cfg: ProviderConfig;
-  status: api.KeyStatus;
-  onUpdated: (s: api.KeyStatus) => void;
-}) {
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [showVal, setShowVal] = useState(false);
-
-  const save = async () => {
-    setBusy(true); setErr("");
-    try {
-      const s = await api.setProviderKey(cfg.id, key.trim() || null);
-      onUpdated(s); setKey("");
-    } catch (e) { setErr((e as Error).message); }
-    finally { setBusy(false); }
-  };
-  const clear = async () => {
-    if (!confirm(`Remove the saved ${cfg.label} key?`)) return;
-    setBusy(true); setErr("");
-    try {
-      const s = await api.setProviderKey(cfg.id, null);
-      onUpdated(s); setKey("");
-    } catch (e) { setErr((e as Error).message); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="field" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
-      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>{cfg.label}</span>
-        <span style={{ fontSize: 11.5, fontWeight: 400, color: status.set ? "var(--accent-text)" : "var(--text-soft)" }}>
-          {status.set ? `set · ${status.preview}` : "not set"}
-        </span>
-      </label>
-      <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginTop: 2, marginBottom: 6 }}>{cfg.hint}</div>
-      <div style={{ display: "flex", gap: 6 }}>
-        <input
-          type={showVal ? "text" : "password"}
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder={cfg.placeholder}
-          spellCheck={false}
-          autoComplete="off"
-          style={{ flex: 1 }}
-        />
-        <button className="primary" onClick={save} disabled={busy || !key.trim()}>
-          {busy ? "…" : "Save"}
-        </button>
-        {status.set && (
-          <button onClick={clear} disabled={busy} style={{ color: "var(--danger)" }} title="Clear saved key">Clear</button>
-        )}
-      </div>
-      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11, marginTop: 4, color: "var(--text-dim)" }}>
-        <input type="checkbox" checked={showVal} onChange={(e) => setShowVal(e.target.checked)} />
-        Show
-      </label>
-      {err && <div className="error" style={{ marginTop: 4 }}>{err}</div>}
     </div>
   );
 }
@@ -1615,3 +1520,188 @@ const refreshIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"
 const backIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const chevronDownIcon = (<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const gearIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);
+
+/* ───────────────────────── Auth gate ──────────────────────────────────── */
+
+type AuthState =
+  | { kind: "loading" }
+  | { kind: "anon" }
+  | { kind: "authed"; user: api.AuthUser };
+
+/** Top-level wrapper: decides between login / pending / the real app based on
+ *  the stored JWT and the server's view of the user (status is live from DB). */
+export function App() {
+  const [state, setState] = useState<AuthState>({ kind: "loading" });
+
+  const check = useCallback(async () => {
+    const token = await bridge.getToken();
+    if (!token) { setState({ kind: "anon" }); return; }
+    try {
+      const user = await api.me();
+      setState({ kind: "authed", user });
+    } catch {
+      // token invalid/expired or server unreachable → show login
+      setState({ kind: "anon" });
+    }
+  }, []);
+
+  useEffect(() => {
+    api.setUnauthorizedHandler(() => { api.logout(); setState({ kind: "anon" }); });
+    check();
+  }, [check]);
+
+  // While pending, poll so an admin approval flips us into the app without a manual relogin.
+  useEffect(() => {
+    if (state.kind !== "authed" || state.user.status !== "pending") return;
+    const t = setInterval(check, 4000);
+    return () => clearInterval(t);
+  }, [state, check]);
+
+  if (state.kind === "loading") {
+    return <div className="auth-screen"><div className="auth-card">Loading…</div></div>;
+  }
+  if (state.kind === "anon") {
+    return <LoginScreen onAuthed={(user) => setState({ kind: "authed", user })} />;
+  }
+  // authed
+  const logout = () => { api.logout(); setState({ kind: "anon" }); };
+  if (state.user.status === "disabled") {
+    return (
+      <div className="auth-screen"><div className="auth-card">
+        <h1>Account disabled</h1>
+        <p>This account has been disabled. Contact the administrator.</p>
+        <button className="primary" onClick={logout}>Log out</button>
+      </div></div>
+    );
+  }
+  if (state.user.status === "pending") {
+    return (
+      <div className="auth-screen"><div className="auth-card">
+        <h1>Awaiting approval</h1>
+        <p>Your account (<strong>{state.user.email}</strong>) is pending approval by the administrator.
+           This page will update automatically once you're approved.</p>
+        <button onClick={logout}>Log out</button>
+      </div></div>
+    );
+  }
+  return <MainApp currentUser={state.user} onLogout={logout} />;
+}
+
+function LoginScreen({ onAuthed }: { onAuthed: (user: api.AuthUser) => void }) {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [serverUrl, setServerUrl] = useState("");
+  const [showServer, setShowServer] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    getConfig().then((c) => setServerUrl(c.serverBase)).catch(() => {});
+  }, []);
+
+  const saveServer = () => {
+    bridge.setServerBase(serverUrl.trim());
+    resetConfigCache();
+    setShowServer(false);
+  };
+
+  const submit = async () => {
+    setBusy(true); setErr("");
+    try {
+      const fn = mode === "login" ? api.login : api.signup;
+      const { user } = await fn(email.trim(), password);
+      onAuthed(user);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <h1>Brandon</h1>
+        <p className="auth-sub">{mode === "login" ? "Sign in to your account" : "Create an account"}</p>
+        <input type="email" placeholder="Email" value={email} autoFocus
+          onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <input type="password" placeholder="Password (min 8 chars)" value={password}
+          onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {err && <div className="error">{err}</div>}
+        <button className="primary" onClick={submit} disabled={busy || !email || !password}>
+          {busy ? "…" : mode === "login" ? "Log in" : "Sign up"}
+        </button>
+        <div className="auth-switch">
+          {mode === "login" ? (
+            <>No account? <button className="linklike" onClick={() => { setMode("signup"); setErr(""); }}>Sign up</button></>
+          ) : (
+            <>Have an account? <button className="linklike" onClick={() => { setMode("login"); setErr(""); }}>Log in</button></>
+          )}
+        </div>
+        {mode === "signup" && (
+          <p className="auth-note">New accounts need administrator approval before you can use the AI.</p>
+        )}
+        <div className="auth-server">
+          {showServer ? (
+            <div style={{ display: "flex", gap: 6 }}>
+              <input value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="http://localhost:8787" style={{ flex: 1 }} />
+              <button onClick={saveServer}>Save</button>
+            </div>
+          ) : (
+            <button className="linklike" onClick={() => setShowServer(true)}>Server: {serverUrl || "…"}</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPanel({ onClose, currentUserId }: { onClose: () => void; currentUserId: string }) {
+  const [users, setUsers] = useState<api.AuthUser[]>([]);
+  const [err, setErr] = useState("");
+  const load = useCallback(() => {
+    api.adminListUsers().then(setUsers).catch((e) => setErr((e as Error).message));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const act = async (fn: () => Promise<void>) => {
+    setErr("");
+    try { await fn(); load(); } catch (e) { setErr((e as Error).message); }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
+        <div className="modal-header">
+          <h2>Users</h2>
+          <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
+        </div>
+        <div className="modal-body">
+          {err && <div className="error">{err}</div>}
+          <table className="admin-users">
+            <thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.email}</td>
+                  <td>{u.role}</td>
+                  <td>{u.status}</td>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    {u.status === "pending" && (
+                      <button className="primary" onClick={() => act(() => api.adminApprove(u.id))}>Approve</button>
+                    )}
+                    {u.status === "active" && u.id !== currentUserId && (
+                      <button onClick={() => act(() => api.adminDisable(u.id))} style={{ color: "var(--danger)" }}>Disable</button>
+                    )}
+                    {u.status === "disabled" && (
+                      <button onClick={() => act(() => api.adminApprove(u.id))}>Re-enable</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="modal-actions"><button onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
