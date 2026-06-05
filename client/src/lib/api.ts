@@ -228,6 +228,14 @@ export async function adminSetKey(provider: ProviderName, key: string | null): P
 }
 
 // ── Usage ───────────────────────────────────────────────────────────────────
+// Weather is proxied through the server (the client never calls external APIs).
+export interface Weather { tempF: number; description: string; localTime: string; }
+export async function getWeather(location: string): Promise<Weather | null> {
+  const res = await fetch(`${await base()}/weather?location=${encodeURIComponent(location)}`, { headers: await authHeaders() });
+  if (res.status === 404) return null;
+  return handle<Weather>(res);
+}
+
 export interface OwnUsage { requests: number; inputTokens: number; outputTokens: number; }
 export async function getMyUsage(): Promise<OwnUsage> {
   const res = await fetch(`${await base()}/settings/usage`, { headers: await authHeaders() });

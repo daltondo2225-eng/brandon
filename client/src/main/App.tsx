@@ -1666,6 +1666,7 @@ const sendIconUp = (<svg width="15" height="15" viewBox="0 0 16 16" fill="none">
 type AuthState =
   | { kind: "loading" }
   | { kind: "anon" }
+  | { kind: "offline" }   // have a token, but the server is unreachable — DON'T log out
   | { kind: "authed"; user: api.AuthUser };
 
 /** Top-level wrapper: decides between login / pending / the real app based on
@@ -1679,9 +1680,13 @@ export function App() {
     try {
       const user = await api.me();
       setState({ kind: "authed", user });
-    } catch {
-      // token invalid/expired or server unreachable → show login
-      setState({ kind: "anon" });
+    } catch (e) {
+      // Distinguish "not authorized" (token bad → login) from "can't reach the
+      // server" (network/timeout → keep the token, show offline + retry). The
+      // server is in the US and users connect from anywhere, so a slow/dropped
+      // request must NOT silently log them out.
+      if ((e as Error).message === "Unauthorized") setState({ kind: "anon" });
+      else setState({ kind: "offline" });
     }
   }, []);
 
@@ -1690,15 +1695,27 @@ export function App() {
     check();
   }, [check]);
 
-  // While pending, poll so an admin approval flips us into the app without a manual relogin.
+  // While pending OR offline, poll so we recover automatically (admin approval,
+  // or the server/network coming back).
   useEffect(() => {
-    if (state.kind !== "authed" || state.user.status !== "pending") return;
+    const polling = state.kind === "offline" || (state.kind === "authed" && state.user.status === "pending");
+    if (!polling) return;
     const t = setInterval(check, 4000);
     return () => clearInterval(t);
   }, [state, check]);
 
   if (state.kind === "loading") {
-    return <div className="auth-screen"><div className="auth-card">Loading…</div></div>;
+    return <div className="auth-screen"><div className="auth-card">Connecting…</div></div>;
+  }
+  if (state.kind === "offline") {
+    return (
+      <div className="auth-screen"><div className="auth-card">
+        <h1>Can't reach the server</h1>
+        <p>Brandon couldn't connect. Retrying automatically… check your connection or the server URL.</p>
+        <button className="primary" onClick={check}>Retry now</button>
+        <button onClick={() => { api.logout(); setState({ kind: "anon" }); }}>Log out</button>
+      </div></div>
+    );
   }
   if (state.kind === "anon") {
     return <LoginScreen onAuthed={(user) => setState({ kind: "authed", user })} />;
