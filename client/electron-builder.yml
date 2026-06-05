@@ -15,15 +15,11 @@ files:
   - "package.json"
   - "!**/{.eslintrc,.gitignore,.prettierrc}"
 
+# The client is thin: it talks to a remote server (no bundled Node server or
+# native sidecar binaries). Only static assets ship as extra resources.
 extraResources:
-  - from: resources/bin
-    to: bin
-    filter: ["**/*"]
   - from: resources/icons
     to: icons
-    filter: ["**/*"]
-  - from: resources/server
-    to: server
     filter: ["**/*"]
 
 win:

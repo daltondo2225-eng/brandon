@@ -1,0 +1,50 @@
+name: Build Windows installer
+
+# Build the Brandon Windows app (.exe NSIS installer) on a real Windows runner.
+# Triggered manually, or automatically when you push a version tag like v0.1.0.
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Install the whole workspace (shared/server/client). The client consumes
+      # @brandon/shared directly from source, so no separate shared build step.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck client
+        run: npm --workspace client run typecheck
+
+      # electron-vite build (main + preload + renderer) then the NSIS installer.
+      # `npm --workspace client run dist` runs both.
+      - name: Build Windows installer
+        run: npm --workspace client run dist
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: brandon-windows-installer
+          path: client/release/*.exe
+          if-no-files-found: error
+
+      # When triggered by a version tag, also attach the installer to a GitHub
+      # Release so users can download it directly.
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: client/release/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
