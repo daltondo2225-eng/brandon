@@ -2,6 +2,9 @@ appId: com.brandon.app
 productName: Brandon
 copyright: Copyright (c) 2026 Brandon
 asar: true
+# No native node modules to rebuild (the captions sidecar is a separate .exe),
+# so skip the rebuild step — avoids npm churn under the workspace install.
+npmRebuild: false
 # electron-builder can't auto-detect the Electron version when it's hoisted to
 # the workspace root, so we pin it explicitly here. Keep in sync with the
 # `electron` devDependency in client/package.json.
