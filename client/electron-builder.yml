@@ -15,12 +15,18 @@ files:
   - "package.json"
   - "!**/{.eslintrc,.gitignore,.prettierrc}"
 
-# The client is thin: it talks to a remote server (no bundled Node server or
-# native sidecar binaries). Only static assets ship as extra resources.
+# The client is thin (talks to a remote server — no bundled Node server). The
+# only native companion is the Windows captions sidecar (BrandonCaptions.exe),
+# published into resources/bin by the CI before packaging. If resources/bin is
+# empty (e.g. a non-Windows local build), the app still runs and shows a
+# "captions unavailable" hint instead of crashing.
 extraResources:
   - from: resources/icons
     to: icons
     filter: ["**/*"]
+  - from: resources/bin
+    to: bin
+    filter: ["**/*", "!.gitkeep"]
 
 win:
   icon: resources/icons/icon.ico

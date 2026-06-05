@@ -19,6 +19,29 @@ jobs:
           node-version: 20
           cache: npm
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Build the captions sidecar (.NET 8, self-contained single-file win-x64)
+      # straight into client/resources/bin so electron-builder bundles it as an
+      # extra resource. The client spawns resources/bin/BrandonCaptions.exe.
+      - name: Publish captions sidecar
+        run: >
+          dotnet publish sidecar/BrandonCaptions/BrandonCaptions.csproj
+          -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o client/resources/bin --nologo
+
+      - name: Verify sidecar built
+        run: |
+          if (-not (Test-Path client/resources/bin/BrandonCaptions.exe)) {
+            throw "BrandonCaptions.exe not found after publish"
+          }
+          Get-ChildItem client/resources/bin | Format-Table Name, Length
+        shell: pwsh
+
       # Install the whole workspace (shared/server/client). The client consumes
       # @brandon/shared directly from source, so no separate shared build step.
       - name: Install dependencies
