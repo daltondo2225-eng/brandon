@@ -1,6 +1,6 @@
 import type { AgendaItem, CompanyStatus, PipelineEntry, Profile, ProfileWithFiles, Session } from "@brandon/shared";
 import { DEFAULT_REALTIME_PROMPT } from "@brandon/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../lib/api";
 import { bridge, getConfig, resetConfigCache } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
@@ -162,7 +162,7 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
   ) : null;
 
   const settingsModal = settingsOpen ? (
-    <SettingsModal onClose={() => setSettingsOpen(false)} />
+    <SettingsModal onClose={() => setSettingsOpen(false)} currentUser={currentUser} />
   ) : null;
 
   const adminModal = adminOpen ? (
@@ -824,39 +824,19 @@ function StartInterviewModal({
   );
 }
 
-function SettingsModal({ onClose }: { onClose: () => void }) {
-  // Server key availability (boolean only — keys are server-owned, you pay).
-  const [keys, setKeys] = useState<api.KeyStatus | null>(null);
-  useEffect(() => {
-    api.getServerKeyStatus().then(setKeys).catch(() => { /* silent */ });
-  }, []);
-
-  const providerLine = (label: string, ok: boolean | undefined) => (
-    <span style={{ display: "inline-flex", gap: 5, alignItems: "center", marginRight: 14 }}>
-      <span style={{ color: ok ? "#4caf50" : "var(--text-soft)" }}>{ok ? "●" : "○"}</span>
-      {label}
-    </span>
-  );
-
+function SettingsModal({ onClose, currentUser }: { onClose: () => void; currentUser: api.AuthUser }) {
+  const isAdmin = currentUser.role === "superadmin";
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-header">
           <h2>Settings</h2>
           <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
         </div>
         <div className="modal-body">
-          <p className="modal-sub">
-            AI models are provided by the server — you don't need to enter any API keys.
-          </p>
-          <div className="field" style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
-            <label>Models available on this server</label>
-            <div style={{ marginTop: 4 }}>
-              {providerLine("Claude", keys?.anthropicKeySet)}
-              {providerLine("GPT", keys?.openaiKeySet)}
-              {providerLine("Gemini", keys?.geminiKeySet)}
-            </div>
-          </div>
+          {/* API keys: admins edit them; everyone else sees model availability. */}
+          {isAdmin ? <AdminKeysSection /> : <ModelStatusSection />}
+          <MyUsageSection />
           <GlobalDefaultsSection />
         </div>
         <div className="modal-actions">
@@ -865,6 +845,116 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Read-only model availability — shown to regular users. */
+function ModelStatusSection() {
+  const [keys, setKeys] = useState<api.KeyStatus | null>(null);
+  useEffect(() => { api.getServerKeyStatus().then(setKeys).catch(() => {}); }, []);
+  const line = (label: string, ok: boolean | undefined) => (
+    <span style={{ display: "inline-flex", gap: 5, alignItems: "center", marginRight: 14 }}>
+      <span style={{ color: ok ? "#4caf50" : "var(--text-soft)" }}>{ok ? "●" : "○"}</span>{label}
+    </span>
+  );
+  return (
+    <div className="field" style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
+      <label>Models available</label>
+      <div style={{ marginTop: 4 }}>
+        {line("Claude", keys?.anthropicKeySet)}
+        {line("GPT", keys?.openaiKeySet)}
+        {line("Gemini", keys?.geminiKeySet)}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text-soft)" }}>
+        AI is provided by the server — no API key needed on your side.
+      </div>
+    </div>
+  );
+}
+
+const PROVIDER_LABELS: { id: api.ProviderName; label: string; placeholder: string }[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", placeholder: "sk-ant-…" },
+  { id: "openai", label: "OpenAI (GPT)", placeholder: "sk-…" },
+  { id: "gemini", label: "Google (Gemini)", placeholder: "AIza…" },
+];
+
+/** Editable shared provider keys — admin only. */
+function AdminKeysSection() {
+  const [keys, setKeys] = useState<api.ProviderKeys | null>(null);
+  const reload = useCallback(() => { api.adminGetKeys().then(setKeys).catch(() => {}); }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  return (
+    <div className="field">
+      <label>API keys (shared — used by everyone)</label>
+      <div style={{ fontSize: 11.5, color: "var(--text-soft)", marginBottom: 8 }}>
+        These keys power chat for all users. Stored on the server.
+      </div>
+      {PROVIDER_LABELS.map((p) => (
+        <AdminKeyRow key={p.id} provider={p.id} label={p.label} placeholder={p.placeholder}
+          info={keys?.[p.id]} onChanged={reload} />
+      ))}
+    </div>
+  );
+}
+
+function AdminKeyRow({ provider, label, placeholder, info, onChanged }: {
+  provider: api.ProviderName; label: string; placeholder: string;
+  info: api.ProviderKeyInfo | undefined; onChanged: () => void;
+}) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const save = async () => {
+    setBusy(true); setErr("");
+    try { await api.adminSetKey(provider, key.trim() || null); setKey(""); onChanged(); }
+    catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const clear = async () => {
+    if (!confirm(`Clear the ${label} key?`)) return;
+    setBusy(true); setErr("");
+    try { await api.adminSetKey(provider, null); onChanged(); }
+    catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const status = !info || !info.set ? "not set"
+    : info.source === "env" ? `from env · ${info.preview}` : `set · ${info.preview}`;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
+        <span>{label}</span>
+        <span style={{ color: info?.set ? "#4caf50" : "var(--text-soft)" }}>{status}</span>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input type="password" value={key} placeholder={placeholder} spellCheck={false} autoComplete="off"
+          onChange={(e) => setKey(e.target.value)} style={{ flex: 1 }} />
+        <button className="primary" onClick={save} disabled={busy || !key.trim()}>{busy ? "…" : "Save"}</button>
+        {info?.source === "db" && <button onClick={clear} disabled={busy} style={{ color: "var(--danger)" }}>Clear</button>}
+      </div>
+      {err && <div className="error" style={{ marginTop: 3 }}>{err}</div>}
+    </div>
+  );
+}
+
+/** Every user can see their own usage totals. */
+function MyUsageSection() {
+  const [u, setU] = useState<api.OwnUsage | null>(null);
+  useEffect(() => { api.getMyUsage().then(setU).catch(() => {}); }, []);
+  if (!u) return null;
+  return (
+    <div className="field" style={{ fontSize: 12.5, color: "var(--text-dim)" }}>
+      <label>Your usage</label>
+      <div style={{ marginTop: 4 }}>
+        {u.requests} requests · {fmtTokens(u.inputTokens)} in / {fmtTokens(u.outputTokens)} out
+      </div>
+    </div>
+  );
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 /**
@@ -1655,6 +1745,7 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: api.AuthUser) => void }) {
 }
 
 function AdminPanel({ onClose, currentUserId }: { onClose: () => void; currentUserId: string }) {
+  const [tab, setTab] = useState<"users" | "usage">("users");
   const [users, setUsers] = useState<api.AuthUser[]>([]);
   const [err, setErr] = useState("");
   const load = useCallback(() => {
@@ -1669,39 +1760,97 @@ function AdminPanel({ onClose, currentUserId }: { onClose: () => void; currentUs
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 660 }}>
         <div className="modal-header">
-          <h2>Users</h2>
+          <h2>Admin</h2>
           <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
+        </div>
+        <div className="admin-tabs">
+          <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>Users</button>
+          <button className={tab === "usage" ? "active" : ""} onClick={() => setTab("usage")}>Usage</button>
         </div>
         <div className="modal-body">
           {err && <div className="error">{err}</div>}
-          <table className="admin-users">
-            <thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.email}</td>
-                  <td>{u.role}</td>
-                  <td>{u.status}</td>
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    {u.status === "pending" && (
-                      <button className="primary" onClick={() => act(() => api.adminApprove(u.id))}>Approve</button>
-                    )}
-                    {u.status === "active" && u.id !== currentUserId && (
-                      <button onClick={() => act(() => api.adminDisable(u.id))} style={{ color: "var(--danger)" }}>Disable</button>
-                    )}
-                    {u.status === "disabled" && (
-                      <button onClick={() => act(() => api.adminApprove(u.id))}>Re-enable</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {tab === "users" ? (
+            <table className="admin-users">
+              <thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.role}</td>
+                    <td>{u.status}</td>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      {u.status === "pending" && (
+                        <button className="primary" onClick={() => act(() => api.adminApprove(u.id))}>Approve</button>
+                      )}
+                      {u.status === "active" && u.id !== currentUserId && (
+                        <button onClick={() => act(() => api.adminDisable(u.id))} style={{ color: "var(--danger)" }}>Disable</button>
+                      )}
+                      {u.status === "disabled" && (
+                        <button onClick={() => act(() => api.adminApprove(u.id))}>Re-enable</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <AdminUsageTab />
+          )}
         </div>
         <div className="modal-actions"><button onClick={onClose}>Close</button></div>
       </div>
     </div>
+  );
+}
+
+function AdminUsageTab() {
+  const [rows, setRows] = useState<api.UsageTotals[] | null>(null);
+  const [openUser, setOpenUser] = useState<string | null>(null);
+  const [calls, setCalls] = useState<api.UsageCall[]>([]);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { api.adminGetUsage().then(setRows).catch((e) => setErr((e as Error).message)); }, []);
+  const drill = async (userId: string) => {
+    if (openUser === userId) { setOpenUser(null); return; }
+    setOpenUser(userId);
+    try { setCalls(await api.adminGetUserCalls(userId)); } catch (e) { setErr((e as Error).message); }
+  };
+
+  if (err) return <div className="error">{err}</div>;
+  if (!rows) return <div style={{ color: "var(--text-dim)" }}>Loading…</div>;
+  if (rows.length === 0) return <div style={{ color: "var(--text-dim)" }}>No usage yet.</div>;
+
+  return (
+    <table className="admin-users">
+      <thead><tr><th>User</th><th>Requests</th><th>In</th><th>Out</th><th>Last used</th></tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <Fragment key={r.userId}>
+            <tr style={{ cursor: "pointer" }} onClick={() => drill(r.userId)}>
+              <td>{r.email}</td>
+              <td>{r.requests}</td>
+              <td>{fmtTokens(r.inputTokens)}</td>
+              <td>{fmtTokens(r.outputTokens)}</td>
+              <td>{r.lastUsedAt ? new Date(r.lastUsedAt).toLocaleDateString() : "—"}</td>
+            </tr>
+            {openUser === r.userId && (
+              <tr>
+                <td colSpan={5} style={{ background: "var(--bg-panel)", fontSize: 11.5 }}>
+                  {calls.length === 0 ? "No calls." : calls.map((c) => (
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                      <span>{c.model}</span>
+                      <span>{fmtTokens(c.inputTokens)} / {fmtTokens(c.outputTokens)}</span>
+                      <span style={{ color: "var(--text-soft)" }}>{new Date(c.createdAt).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </td>
+              </tr>
+            )}
+          </Fragment>
+        ))}
+      </tbody>
+    </table>
   );
 }

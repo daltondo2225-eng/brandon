@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at INTEGER NOT NULL
 );
 
+-- One row per chat call, for per-user usage accounting (admins see all, users
+-- see their own). Tokens come from the provider's usage report on stream end.
+CREATE TABLE IF NOT EXISTS usage_log (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,            -- 'anthropic' | 'openai' | 'gemini'
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_log_user_idx ON usage_log(user_id);
+CREATE INDEX IF NOT EXISTS usage_log_created_idx ON usage_log(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT,

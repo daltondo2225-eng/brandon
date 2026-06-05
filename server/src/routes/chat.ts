@@ -9,6 +9,7 @@ import { streamCompletion as streamOpenAI } from "../openai/client.js";
 import { streamCompletion as streamGemini } from "../gemini/client.js";
 import { requireActive } from "../auth/guards.js";
 import { isAllowedOrigin } from "../cors.js";
+import { logUsage } from "../db/usage.js";
 
 const ChatBody = z.object({
   profileId: z.string(),
@@ -78,7 +79,17 @@ export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
           : undefined,
         onText: (text) => send("chunk", { type: "text", text }),
         onTool: (evt) => send("chunk", { type: "tool", ...evt }),
-        onDone: (usage) => send("done", { type: "done", usage }),
+        onDone: (usage) => {
+          // Record usage for per-user accounting (admin/own usage views).
+          logUsage({
+            userId: req.user!.id,
+            provider,
+            model: profile.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          });
+          send("done", { type: "done", usage });
+        },
       });
     } catch (err) {
       app.log.error({ err }, "chat stream failed");

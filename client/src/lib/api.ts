@@ -209,6 +209,45 @@ export async function adminDisable(id: string): Promise<void> {
   await handle<unknown>(res);
 }
 
+// ── Admin: shared provider keys (DB-backed, admin-editable) ─────────────────
+export type ProviderName = "anthropic" | "openai" | "gemini";
+export interface ProviderKeyInfo { set: boolean; preview: string | null; source: "db" | "env" | "none"; }
+export type ProviderKeys = Record<ProviderName, ProviderKeyInfo>;
+
+export async function adminGetKeys(): Promise<ProviderKeys> {
+  const res = await fetch(`${await base()}/settings/keys`, { headers: await authHeaders() });
+  return handle<ProviderKeys>(res);
+}
+export async function adminSetKey(provider: ProviderName, key: string | null): Promise<ProviderKeyInfo> {
+  const res = await fetch(`${await base()}/settings/keys`, {
+    method: "PUT",
+    headers: await jsonHeaders(),
+    body: JSON.stringify({ provider, key }),
+  });
+  return handle<ProviderKeyInfo>(res);
+}
+
+// ── Usage ───────────────────────────────────────────────────────────────────
+export interface OwnUsage { requests: number; inputTokens: number; outputTokens: number; }
+export async function getMyUsage(): Promise<OwnUsage> {
+  const res = await fetch(`${await base()}/settings/usage`, { headers: await authHeaders() });
+  return handle<OwnUsage>(res);
+}
+
+export interface UsageTotals { userId: string; email: string; requests: number; inputTokens: number; outputTokens: number; lastUsedAt: number | null; }
+export async function adminGetUsage(): Promise<UsageTotals[]> {
+  const res = await fetch(`${await base()}/admin/usage`, { headers: await authHeaders() });
+  const data = await handle<{ usage: UsageTotals[] }>(res);
+  return data.usage;
+}
+
+export interface UsageCall { id: string; provider: string; model: string; inputTokens: number; outputTokens: number; createdAt: number; }
+export async function adminGetUserCalls(id: string): Promise<UsageCall[]> {
+  const res = await fetch(`${await base()}/admin/usage/${id}`, { headers: await authHeaders() });
+  const data = await handle<{ calls: UsageCall[] }>(res);
+  return data.calls;
+}
+
 export interface GlobalDefaults {
   defaultInterviewBrief: string;
   defaultVoiceSample: string;
