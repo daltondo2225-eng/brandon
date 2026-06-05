@@ -72,6 +72,27 @@ CREATE TABLE IF NOT EXISTS usage_log (
 CREATE INDEX IF NOT EXISTS usage_log_user_idx ON usage_log(user_id);
 CREATE INDEX IF NOT EXISTS usage_log_created_idx ON usage_log(created_at DESC);
 
+-- Practice/prep chats (ChatGPT-style). Per-user; each has an ordered message
+-- list. Separate from interview `sessions` (which are live-caption transcripts).
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  profile_id TEXT,                   -- the mode whose model+persona answers
+  title TEXT NOT NULL DEFAULT 'New chat',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,                -- 'user' | 'assistant'
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_conv_idx ON messages(conversation_id, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT,

@@ -11,6 +11,7 @@ import { getUserById } from "./db/users.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { registerConversationRoutes } from "./routes/conversations.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerProfileRoutes } from "./routes/profiles.js";
 import { registerAgendaRoutes } from "./routes/agenda.js";
@@ -68,6 +69,7 @@ await registerCompanyRoutes(app);
 await registerAgendaRoutes(app);
 await registerSettingsRoutes(app);
 await registerChatRoutes(app);
+await registerConversationRoutes(app);
 
 app.listen({ port: config.port, host: config.host }).then(() => {
   app.log.info(`Brandon server listening on http://${config.host}:${config.port}`);

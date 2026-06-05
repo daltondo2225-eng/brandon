@@ -1,4 +1,4 @@
-import type { AgendaItem, ChatChunk, ChatImage, ChatTurn, Company, CompanyStatus, PipelineEntry, Profile, ProfileWithFiles, ReferenceFile, Session } from "@brandon/shared";
+import type { AgendaItem, ChatChunk, ChatImage, ChatMessage, ChatTurn, Company, CompanyStatus, Conversation, PipelineEntry, Profile, ProfileWithFiles, ReferenceFile, Session } from "@brandon/shared";
 import { bridge, getConfig } from "./bridge";
 
 // Called when any request returns 401 (token missing/invalid/expired). The
@@ -388,4 +388,60 @@ function parseSSEBlock(block: string): { event: string; data: any } | null {
   } catch {
     return null;
   }
+}
+
+// Shared SSE pump for any /…/messages-style streaming endpoint.
+async function pumpSSE(res: Response, handlers: ChatStreamHandlers): Promise<void> {
+  if (!res.ok || !res.body) { handlers.onError(`HTTP ${res.status}: ${await res.text()}`); return; }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const event = parseSSEBlock(block);
+      if (!event) continue;
+      if (event.event === "chunk") {
+        if (event.data.type === "text") handlers.onText(event.data.text);
+        if (event.data.type === "error") handlers.onError(event.data.message);
+        if (event.data.type === "tool" && handlers.onTool) {
+          handlers.onTool({ name: event.data.name, input: event.data.input ?? {}, ok: !!event.data.ok, summary: event.data.summary ?? "" });
+        }
+      } else if (event.event === "done") {
+        handlers.onDone(event.data);
+      }
+    }
+  }
+}
+
+// ── Practice/prep conversations (ChatGPT-style, persisted) ──────────────────
+export async function listConversations(): Promise<Conversation[]> {
+  const res = await fetch(`${await base()}/conversations`, { headers: await authHeaders() });
+  const data = await handle<{ conversations: Conversation[] }>(res);
+  return data.conversations;
+}
+export async function getConversation(id: string): Promise<{ conversation: Conversation; messages: ChatMessage[] }> {
+  const res = await fetch(`${await base()}/conversations/${id}`, { headers: await authHeaders() });
+  return handle<{ conversation: Conversation; messages: ChatMessage[] }>(res);
+}
+export async function createConversation(): Promise<Conversation> {
+  const res = await fetch(`${await base()}/conversations`, { method: "POST", headers: await jsonHeaders(), body: "{}" });
+  return handle<Conversation>(res);
+}
+export async function deleteConversation(id: string): Promise<void> {
+  const res = await fetch(`${await base()}/conversations/${id}`, { method: "DELETE", headers: await authHeaders() });
+  if (!res.ok && res.status !== 204) throw new Error(`${res.status}`);
+}
+export async function streamConversationMessage(
+  conversationId: string, content: string, handlers: ChatStreamHandlers, signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${await base()}/conversations/${conversationId}/messages`, {
+    method: "POST", headers: await jsonHeaders(), body: JSON.stringify({ content }), signal,
+  });
+  await pumpSSE(res, handlers);
 }

@@ -21,6 +21,24 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Dark theme — ChatGPT-style: dark sidebar + near-black canvas. Toggled via
+   document.documentElement[data-theme="dark"]. */
+:root[data-theme="dark"] {
+  --bg: #1e1f22;
+  --bg-panel: #2a2b30;
+  --bg-card: #26272b;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --text: #ececf1;
+  --text-dim: #a7a9b4;
+  --text-soft: #7e8088;
+  --border: #34353a;
+  --border-strong: #45464c;
+  --accent: #4a9eff;
+  --accent-soft: rgba(74, 158, 255, 0.16);
+  --accent-text: #8cc2ff;
+  --danger: #ff6b5c;
+}
+
 * { box-sizing: border-box; }
 body, html, #root { margin: 0; padding: 0; height: 100%; background: transparent; }
 body { color: var(--text); overflow: hidden; }
@@ -1555,3 +1573,66 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   color: var(--text-dim); font-size: 13px; border-bottom: 2px solid transparent;
 }
 .admin-tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ───────────────────────── Theme toggle + secondary nav btn ──────────── */
+.brand-row { display: flex; align-items: center; justify-content: space-between; }
+.theme-toggle {
+  background: none; border: none; cursor: pointer; color: var(--text-dim);
+  width: 26px; height: 26px; border-radius: 6px; display: inline-flex;
+  align-items: center; justify-content: center;
+}
+.theme-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.new-chat-btn.secondary { background: var(--bg-panel); color: var(--text); border: 1px solid var(--border); }
+.new-chat-btn.secondary:hover { background: var(--bg-hover); }
+
+/* ───────────────────────── Practice chat view ───────────────────────── */
+.history-empty { padding: 16px; font-size: 12.5px; color: var(--text-soft); }
+.history-row.chat-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.history-row.chat-row .history-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-del {
+  opacity: 0; background: none; border: none; color: var(--text-soft);
+  cursor: pointer; padding: 2px; border-radius: 4px; flex: 0 0 auto;
+}
+.history-row.chat-row:hover .chat-del { opacity: 1; }
+.chat-del:hover { color: var(--danger); background: var(--bg-hover); }
+
+.chat-thread { display: flex; flex-direction: column; height: 100vh; }
+.chat-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; color: var(--text-dim); gap: 6px;
+}
+.chat-empty h1 { font-size: 28px; font-weight: 500; letter-spacing: -0.4px; margin: 0; color: var(--text); }
+.chat-empty p { margin: 0; font-size: 14px; }
+
+.chat-scroll { flex: 1; overflow-y: auto; }
+.chat-inner { max-width: 760px; margin: 0 auto; padding: 28px 20px 12px; display: flex; flex-direction: column; gap: 18px; }
+.chat-msg { display: flex; }
+.chat-msg.user { justify-content: flex-end; }
+.chat-msg.assistant { justify-content: flex-start; }
+.chat-msg .chat-bubble {
+  max-width: 80%; padding: 11px 15px; border-radius: 16px; line-height: 1.55; font-size: 14.5px;
+  word-wrap: break-word; white-space: pre-wrap;
+}
+.chat-msg.user .chat-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 5px; white-space: pre-wrap; }
+.chat-msg.assistant .chat-bubble { background: var(--bg-panel); color: var(--text); border-bottom-left-radius: 5px; }
+.chat-msg.assistant .chat-bubble .md { white-space: normal; }
+
+/* Centered composer (ChatGPT-style) */
+.chat-composer { padding: 12px 20px 22px; }
+.chat-composer-inner {
+  max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  border-radius: 24px; padding: 8px 8px 8px 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+.chat-composer-inner textarea {
+  flex: 1; resize: none; border: none; background: transparent; color: var(--text);
+  font-family: inherit; font-size: 14.5px; line-height: 1.5; max-height: 200px; padding: 6px 0;
+  outline: none;
+}
+.chat-composer-inner textarea::placeholder { color: var(--text-soft); }
+.chat-send {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-send:disabled { background: var(--border-strong); color: var(--text-soft); cursor: default; }

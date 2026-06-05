@@ -6,10 +6,26 @@ import { bridge, getConfig, resetConfigCache } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
 
 const DETECTABLE_KEY = "brandon.detectable";
+const THEME_KEY = "brandon.theme";
 
 const SUPPORTED_EXTENSIONS = ".pdf,.docx,.txt,.md";
 
-type View = "home" | "settings" | "meeting";
+type View = "home" | "settings" | "meeting" | "chat";
+
+type Theme = "light" | "dark";
+function applyTheme(theme: Theme): void {
+  document.documentElement.setAttribute("data-theme", theme);
+}
+function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try { return (localStorage.getItem(THEME_KEY) as Theme) || "light"; } catch { return "light"; }
+  });
+  useEffect(() => {
+    applyTheme(theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
+  }, [theme]);
+  return [theme, () => setTheme((t) => (t === "light" ? "dark" : "light"))];
+}
 
 function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogout: () => void }) {
   const [view, setView] = useState<View>("home");
@@ -22,6 +38,7 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [error, setError] = useState<string>("");
+  const [theme, toggleTheme] = useTheme();
 
   // Detectable = visible in screen capture. On this Win11 GPU combo,
   // setContentProtection(true) makes the overlay invisible to the user too —
@@ -169,6 +186,19 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
     <AdminPanel onClose={() => setAdminOpen(false)} currentUserId={currentUser.id} />
   ) : null;
 
+  if (view === "chat") {
+    return (
+      <>{settingsModal}{adminModal}
+        <ChatView
+          activeProfile={activeProfile}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onBackHome={() => setView("home")}
+        />
+      </>
+    );
+  }
+
   if (view === "home") {
     return (
       <>{startModal}{settingsModal}{adminModal}<HomeView
@@ -180,6 +210,9 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
         openMeetingId={openMeetingId}
         detectable={detectable}
         currentUser={currentUser}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onOpenChat={() => setView("chat")}
         onLogout={onLogout}
         onOpenAdmin={() => setAdminOpen(true)}
         onToggleDetectable={() => setDetectable((v) => !v)}
@@ -289,6 +322,9 @@ function HomeView({
   openMeetingId,
   detectable,
   currentUser,
+  theme,
+  onToggleTheme,
+  onOpenChat,
   onLogout,
   onOpenAdmin,
   onToggleDetectable,
@@ -310,6 +346,9 @@ function HomeView({
   openMeetingId: string | null;
   detectable: boolean;
   currentUser: api.AuthUser;
+  theme: Theme;
+  onToggleTheme: () => void;
+  onOpenChat: () => void;
   onLogout: () => void;
   onOpenAdmin: () => void;
   onToggleDetectable: () => void;
@@ -334,10 +373,17 @@ function HomeView({
         <div className="history-sidebar-top">
           <div className="brand-row">
             <span className="brand-label">Brandon</span>
+            <button className="theme-toggle" onClick={onToggleTheme} title={theme === "light" ? "Switch to dark" : "Switch to light"}>
+              {theme === "light" ? moonIcon : sunIcon}
+            </button>
           </div>
           <button className="new-chat-btn" onClick={onStart} disabled={!activeProfile} title="Start a new interview">
             {plusIcon}
             <span>New interview</span>
+          </button>
+          <button className="new-chat-btn secondary" onClick={onOpenChat} title="Open practice chat">
+            {chatIcon}
+            <span>Practice chat</span>
           </button>
           <div className="sidebar-tabs">
             <button
@@ -1610,6 +1656,10 @@ const refreshIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"
 const backIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const chevronDownIcon = (<svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const gearIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);
+const chatIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-7l-4 3v-3h0v-7z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>);
+const moonIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 9.5A5.5 5.5 0 016.5 3a5.5 5.5 0 102 10.5 5.52 5.52 0 004.5-4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>);
+const sunIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M13 3l-1 1M4 12l-1 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);
+const sendIconUp = (<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 13V3M4 7l4-4 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 
 /* ───────────────────────── Auth gate ──────────────────────────────────── */
 
@@ -1852,5 +1902,159 @@ function AdminUsageTab() {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/* ───────────────────────── Practice chat (ChatGPT-style) ──────────────── */
+
+interface ChatMsg { id: string; role: "user" | "assistant"; content: string; }
+
+function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
+  activeProfile: Profile | null;
+  theme: Theme;
+  onToggleTheme: () => void;
+  onBackHome: () => void;
+}) {
+  const [convos, setConvos] = useState<import("@brandon/shared").Conversation[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [err, setErr] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const loadConvos = useCallback(async () => {
+    try { setConvos(await api.listConversations()); } catch (e) { setErr((e as Error).message); }
+  }, []);
+  useEffect(() => { loadConvos(); }, [loadConvos]);
+
+  const openConvo = useCallback(async (id: string) => {
+    setOpenId(id); setErr("");
+    try {
+      const { messages: msgs } = await api.getConversation(id);
+      setMessages(msgs.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+    } catch (e) { setErr((e as Error).message); }
+  }, []);
+
+  const newChat = useCallback(async () => {
+    setErr("");
+    try {
+      const c = await api.createConversation();
+      await loadConvos();
+      setOpenId(c.id); setMessages([]);
+    } catch (e) { setErr((e as Error).message); }
+  }, [loadConvos]);
+
+  const removeConvo = useCallback(async (id: string) => {
+    if (!confirm("Delete this chat?")) return;
+    try {
+      await api.deleteConversation(id);
+      if (openId === id) { setOpenId(null); setMessages([]); }
+      await loadConvos();
+    } catch (e) { setErr((e as Error).message); }
+  }, [openId, loadConvos]);
+
+  // Auto-scroll to the bottom as the reply streams.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, streaming]);
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || streaming) return;
+    setErr("");
+    // Ensure a conversation exists.
+    let convId = openId;
+    if (!convId) {
+      try { const c = await api.createConversation(); convId = c.id; setOpenId(c.id); }
+      catch (e) { setErr((e as Error).message); return; }
+    }
+    setInput("");
+    setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: text }, { id: `a-${Date.now()}`, role: "assistant", content: "" }]);
+    setStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let acc = "";
+    try {
+      await api.streamConversationMessage(convId!, text, {
+        onText: (t) => {
+          acc += t;
+          setMessages((m) => { const copy = [...m]; copy[copy.length - 1] = { ...copy[copy.length - 1], content: acc }; return copy; });
+        },
+        onDone: () => { setStreaming(false); loadConvos(); },
+        onError: (msg) => { setErr(msg); setStreaming(false); },
+      }, controller.signal);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setErr((e as Error).message);
+      setStreaming(false);
+    }
+  }, [input, streaming, openId, loadConvos]);
+
+  return (
+    <div className="chat-layout">
+      <aside className="history-sidebar">
+        <div className="history-sidebar-top">
+          <div className="brand-row">
+            <button className="link-settings small" onClick={onBackHome} title="Back to home">← Home</button>
+            <button className="theme-toggle" onClick={onToggleTheme} title={theme === "light" ? "Switch to dark" : "Switch to light"}>
+              {theme === "light" ? moonIcon : sunIcon}
+            </button>
+          </div>
+          <button className="new-chat-btn" onClick={newChat}>{plusIcon}<span>New chat</span></button>
+        </div>
+        <div className="history-list">
+          {convos.length === 0 && <div className="history-empty">No chats yet.</div>}
+          {convos.map((c) => (
+            <div key={c.id} className={`history-row chat-row${c.id === openId ? " active" : ""}`} onClick={() => openConvo(c.id)}>
+              <span className="history-row-title">{c.title || "New chat"}</span>
+              <button className="chat-del" title="Delete" onClick={(e) => { e.stopPropagation(); removeConvo(c.id); }}>{trashIcon}</button>
+            </div>
+          ))}
+        </div>
+        <div className="history-sidebar-footer">
+          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+            {activeProfile ? <>Answering as <strong>{activeProfile.name}</strong></> : "No active mode — set one on Home"}
+          </div>
+        </div>
+      </aside>
+
+      <main className="chat-main chat-thread">
+        {messages.length === 0 ? (
+          <div className="chat-empty">
+            <h1>Practice chat</h1>
+            <p>Ask anything — answered in your interview voice{activeProfile ? ` (${activeProfile.name})` : ""}.</p>
+          </div>
+        ) : (
+          <div className="chat-scroll" ref={scrollRef}>
+            <div className="chat-inner">
+              {messages.map((m) => (
+                <div key={m.id} className={`chat-msg ${m.role}`}>
+                  <div className="chat-bubble">
+                    {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {err && <div className="error" style={{ textAlign: "center", padding: "0 0 8px" }}>{err}</div>}
+        <div className="chat-composer">
+          <div className="chat-composer-inner">
+            <textarea
+              value={input}
+              placeholder="Ask anything"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              rows={1}
+            />
+            <button className="chat-send" onClick={send} disabled={!input.trim() || streaming} title="Send (Enter)">
+              {sendIconUp}
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

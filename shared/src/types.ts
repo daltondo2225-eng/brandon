@@ -145,6 +145,23 @@ export interface ChatTurn {
   assistant: string;
 }
 
+/** A persisted practice/prep chat (ChatGPT-style), separate from live interview
+ *  `sessions`. Belongs to one user; answered by a profile's model + persona. */
+export interface Conversation {
+  id: string;
+  profileId: ProfileId | null;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: number;
+}
+
 /** A pasted/attached image for the current question (e.g. screenshot of a
  *  coding panel or system-design board). Sent inline as base64. */
 export interface ChatImage {
