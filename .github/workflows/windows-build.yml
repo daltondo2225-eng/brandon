@@ -47,28 +47,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The mac-generated lockfile can leave electron-builder's native helper
-      # (app-builder-bin/win/x64/app-builder.exe) unextracted after npm ci on a
-      # Windows runner → "spawn ... app-builder.exe ENOENT". Force-reinstall it
-      # at the workspace root if the Windows binary is missing.
-      - name: Ensure electron-builder native binary
-        shell: pwsh
-        run: |
-          $exe = "node_modules/app-builder-bin/win/x64/app-builder.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Host "app-builder.exe missing — reinstalling app-builder-bin"
-            npm install --no-save --force app-builder-bin@5.0.0-alpha.10
-          }
-          if (-not (Test-Path $exe)) { throw "app-builder.exe still missing after reinstall" }
-          Write-Host "OK: $exe"
-
       - name: Typecheck client
         run: npm --workspace client run typecheck
 
-      # electron-vite build (main + preload + renderer) then the NSIS installer.
-      # `npm --workspace client run dist` runs both.
-      - name: Build Windows installer
-        run: npm --workspace client run dist
+      # 1) Build the renderer/main/preload bundles (no packaging yet).
+      - name: Build app bundles
+        run: npm --workspace client run build
+
+      # 2) electron-builder's native helper (app-builder.exe) can be missing or
+      #    get pruned under npm workspaces on Windows → "spawn ... ENOENT".
+      #    Resolve the path electron-builder will actually use, and download the
+      #    binary straight into it if absent. Done right before packaging so
+      #    nothing can prune it afterward.
+      - name: Ensure app-builder.exe is present
+        shell: pwsh
+        run: |
+          $exe = "node_modules/app-builder-bin/win/x64/app-builder.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $exe) | Out-Null
+          if (-not (Test-Path $exe)) {
+            Write-Host "app-builder.exe missing — fetching from registry tarball"
+            $tgz = "$env:RUNNER_TEMP\abb.tgz"
+            Invoke-WebRequest -Uri "https://registry.npmjs.org/app-builder-bin/-/app-builder-bin-5.0.0-alpha.10.tgz" -OutFile $tgz
+            tar -xzf $tgz -C $env:RUNNER_TEMP
+            Copy-Item "$env:RUNNER_TEMP\package\win\x64\app-builder.exe" $exe -Force
+          }
+          if (-not (Test-Path $exe)) { throw "app-builder.exe still missing" }
+          Write-Host ("OK: {0} ({1} bytes)" -f $exe, (Get-Item $exe).Length)
+
+      # 3) Package the NSIS installer. Skip native rebuild (no native deps) and
+      #    auto code-signing discovery (unsigned build).
+      - name: Package Windows installer
+        working-directory: client
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win --config electron-builder.yml --publish never -c.npmRebuild=false
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
