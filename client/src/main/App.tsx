@@ -5,13 +5,15 @@ import * as api from "../lib/api";
 import { bridge, getConfig, resetConfigCache } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
 import { fileToImage, imagesFromClipboard } from "../lib/image";
+import { BrandonMark } from "../lib/BrandonMark";
 
 const DETECTABLE_KEY = "brandon.detectable";
 const THEME_KEY = "brandon.theme";
 
 const SUPPORTED_EXTENSIONS = ".pdf,.docx,.txt,.md";
 
-type View = "home" | "settings" | "meeting" | "chat";
+// Panes in the unified shell: chat (home), interviews, calendar, modes editor.
+type View = "chat" | "home" | "calendar" | "modes";
 
 type Theme = "light" | "dark";
 function applyTheme(theme: Theme): void {
@@ -166,6 +168,7 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
       bridge.showOverlay();
       bridge.hideMainWindow();
     } catch (err) {
+      console.error("startInterview failed:", err);
       setError((err as Error).message);
     }
   }, [pendingStartProfile, refresh, refreshSessions]);
@@ -188,345 +191,51 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
     <AdminPanel onClose={() => setAdminOpen(false)} currentUserId={currentUser.id} />
   ) : null;
 
-  if (view === "chat") {
-    return (
-      <>{settingsModal}{adminModal}
-        <ChatView
-          profiles={profiles}
-          activeProfile={activeProfile}
-          currentUser={currentUser}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onNavigate={(v) => setView(v)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenAdmin={() => setAdminOpen(true)}
-          onLogout={onLogout}
-          onShrinkToOverlay={() => { bridge.showOverlay(); bridge.hideMainWindow(); }}
-        />
-      </>
-    );
-  }
-
-  if (view === "home") {
-    return (
-      <>{startModal}{settingsModal}{adminModal}<HomeView
+  // One unified shell for the whole window: a single persistent sidebar + a
+  // content pane that swaps (chat / interviews / calendar / modes). No more
+  // separate full-screen views (that caused the "different window" jump).
+  return (
+    <>{startModal}{settingsModal}{adminModal}
+      <ChatShell
+        pane={view}
+        setPane={setView}
         profiles={profiles}
         activeProfile={activeProfile}
+        currentUser={currentUser}
+        theme={theme}
+        detectable={detectable}
+        onToggleDetectable={() => setDetectable((v) => !v)}
+        onToggleTheme={toggleTheme}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenAdmin={() => setAdminOpen(true)}
+        onLogout={onLogout}
+        onShrinkToOverlay={() => { bridge.showOverlay(); bridge.hideMainWindow(); }}
+        // interviews data
         sessions={allSessions}
         pipeline={pipeline}
         agenda={agenda}
         openMeetingId={openMeetingId}
-        detectable={detectable}
-        currentUser={currentUser}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onOpenChat={() => setView("chat")}
-        onLogout={onLogout}
-        onOpenAdmin={() => setAdminOpen(true)}
-        onToggleDetectable={() => setDetectable((v) => !v)}
-        onStart={() => activeProfile && startInterview(activeProfile.id)}
-        onOpenSettings={() => setView("settings")}
-        onOpenApiSettings={() => setSettingsOpen(true)}
-        onPickActive={async (id) => {
-          await api.activateProfile(id);
-          await refresh();
-        }}
         onOpenMeeting={(id) => setOpenMeetingId(id)}
         onCloseMeeting={() => setOpenMeetingId(null)}
-        onUpdateCompanyStatus={async (id, status) => {
-          await api.updateCompany(id, { status });
-          await refreshPipeline();
-        }}
-        onDeleteCompany={async (id) => {
-          await api.deleteCompany(id);
-          await refreshPipeline();
-        }}
+        onUpdateCompanyStatus={async (id, status) => { await api.updateCompany(id, { status }); await refreshPipeline(); }}
+        onDeleteCompany={async (id) => { await api.deleteCompany(id); await refreshPipeline(); }}
+        // modes data
+        selectedModeId={selectedId}
+        modeDetail={detail}
+        onSelectMode={(id) => setSelectedId(id)}
+        onCreateMode={createNew}
+        reloadModeDetail={reloadDetail}
+        refreshProfiles={refresh}
+        onStartInterview={startInterview}
+        onPickActive={async (id) => { await api.activateProfile(id); await refresh(); }}
         error={error}
-      /></>
-    );
-  }
-
-  return (
-    <>
-    {startModal}
-    <div className="app">
-      <aside className="sidebar">
-        <div className="sidebar-top">
-          <button className="icon" title="Back to Home" onClick={() => setView("home")}>{closeIcon}</button>
-          <span style={{ fontSize: 13, color: "var(--text-dim)" }}>Modes</span>
-        </div>
-        <button className="new-mode" onClick={createNew}>
-          {plusIcon}
-          <span>New Mode</span>
-        </button>
-        <div className="profile-list">
-          {profiles.map((p) => (
-            <div
-              key={p.id}
-              className={`profile-item${p.id === selectedId ? " selected" : ""}`}
-              onClick={() => setSelectedId(p.id)}
-            >
-              <span className="icon">{docIcon}</span>
-              <span className="name">{p.name || "Untitled"}</span>
-              {p.isActive && <span className="check" title="Active">{checkIcon}</span>}
-              <button
-                className="row-start"
-                title="Start interview with this mode"
-                onClick={(e) => { e.stopPropagation(); startInterview(p.id); }}
-              >{playIcon}</button>
-            </div>
-          ))}
-        </div>
-        <div className="sidebar-footer">
-          {templateIcon}
-          <span>Brandon Templates</span>
-        </div>
-      </aside>
-
-      <main className="editor">
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: -16 }}>
-          <button
-            className={`toggle danger ${detectable ? "on" : ""}`}
-            onClick={() => setDetectable((v) => !v)}
-            title={detectable
-              ? "Overlay is visible in screen-share (Zoom/Meet/Teams will see it)"
-              : "Overlay is hidden from screen-share (recommended)"}
-          >
-            <span className="track"><span className="thumb" /></span>
-            <span className="label">{detectable ? "Detectable" : "Undetectable"}</span>
-          </button>
-        </div>
-        {!detail ? (
-          <div className="empty">Select a mode on the left or click <strong>+ New Mode</strong>.</div>
-        ) : (
-          <ProfileEditor
-            profile={detail}
-            onChanged={reloadDetail}
-            onActivate={async () => {
-              try { await api.activateProfile(detail.id); await reloadDetail(); }
-              catch (err) { setError((err as Error).message); }
-            }}
-            onDelete={async () => {
-              if (!confirm(`Delete mode "${detail.name}" and its reference files?`)) return;
-              try { await api.deleteProfile(detail.id); setSelectedId(null); await refresh(); }
-              catch (err) { setError((err as Error).message); }
-            }}
-            onStart={() => startInterview(detail.id)}
-          />
-        )}
-        {error && <div className="error">{error}</div>}
-      </main>
-    </div>
+        setError={setError}
+      />
     </>
   );
+
 }
 
-function HomeView({
-  profiles,
-  activeProfile,
-  sessions,
-  pipeline,
-  agenda,
-  openMeetingId,
-  detectable,
-  currentUser,
-  theme,
-  onToggleTheme,
-  onOpenChat,
-  onLogout,
-  onOpenAdmin,
-  onToggleDetectable,
-  onStart,
-  onOpenSettings,
-  onOpenApiSettings,
-  onPickActive,
-  onOpenMeeting,
-  onCloseMeeting,
-  onUpdateCompanyStatus,
-  onDeleteCompany,
-  error,
-}: {
-  profiles: Profile[];
-  activeProfile: Profile | null;
-  sessions: Session[];
-  pipeline: PipelineEntry[];
-  agenda: AgendaItem[];
-  openMeetingId: string | null;
-  detectable: boolean;
-  currentUser: api.AuthUser;
-  theme: Theme;
-  onToggleTheme: () => void;
-  onOpenChat: () => void;
-  onLogout: () => void;
-  onOpenAdmin: () => void;
-  onToggleDetectable: () => void;
-  onStart: () => void;
-  onOpenSettings: () => void;
-  onOpenApiSettings: () => void;
-  onPickActive: (id: string) => Promise<void>;
-  onOpenMeeting: (id: string) => void;
-  onCloseMeeting: () => void;
-  onUpdateCompanyStatus: (id: string, status: CompanyStatus) => Promise<void>;
-  onDeleteCompany: (id: string) => Promise<void>;
-  error: string;
-}) {
-  const [picker, setPicker] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"pipeline" | "meetings">("pipeline");
-  const grouped = groupSessionsByDay(sessions);
-
-  return (
-    <div className="chat-layout">
-      {/* ----------- LEFT: history sidebar ----------- */}
-      <aside className="history-sidebar">
-        <div className="history-sidebar-top">
-          <div className="brand-row">
-            <span className="brand-label">Brandon</span>
-            <button className="theme-toggle" onClick={onToggleTheme} title={theme === "light" ? "Switch to dark" : "Switch to light"}>
-              {theme === "light" ? moonIcon : sunIcon}
-            </button>
-          </div>
-          <button className="new-chat-btn" onClick={onStart} disabled={!activeProfile} title="Start a new interview">
-            {plusIcon}
-            <span>New interview</span>
-          </button>
-          <button className="new-chat-btn secondary" onClick={onOpenChat} title="Open practice chat">
-            {chatIcon}
-            <span>Practice chat</span>
-          </button>
-          <div className="sidebar-tabs">
-            <button
-              className={sidebarTab === "pipeline" ? "active" : ""}
-              onClick={() => setSidebarTab("pipeline")}
-            >Pipeline</button>
-            <button
-              className={sidebarTab === "meetings" ? "active" : ""}
-              onClick={() => setSidebarTab("meetings")}
-            >Meetings</button>
-          </div>
-        </div>
-
-        {sidebarTab === "meetings" ? (
-          <div className="history-list">
-            {sessions.length === 0 ? (
-              <div className="history-empty">No meetings yet.</div>
-            ) : (
-              grouped.map((group) => (
-                <div className="history-group" key={group.label}>
-                  <div className="history-group-title">{group.label}</div>
-                  {group.items.map((s) => {
-                    const owner = profiles.find((p) => p.id === s.profileId);
-                    const ended = s.endedAt !== null;
-                    const active = s.id === openMeetingId;
-                    return (
-                      <button
-                        key={s.id}
-                        className={`history-row${active ? " active" : ""}`}
-                        onClick={() => onOpenMeeting(s.id)}
-                        title={s.title}
-                      >
-                        <div className="history-row-title">{s.title}</div>
-                        <div className="history-row-meta">
-                          <span>{owner?.name ?? "—"}</span>
-                          <span>·</span>
-                          <span>{ended ? formatDuration(s.endedAt! - s.startedAt) : "live"}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))
-            )}
-          </div>
-        ) : (
-          <PipelineList
-            pipeline={pipeline}
-            openMeetingId={openMeetingId}
-            onOpenMeeting={onOpenMeeting}
-            onUpdateStatus={onUpdateCompanyStatus}
-            onDelete={onDeleteCompany}
-          />
-        )}
-
-        <div className="history-sidebar-footer">
-          <div className="active-mode-row">
-            <div style={{ position: "relative", flex: 1 }}>
-              <button className="mode-pill compact" onClick={() => setPicker((v) => !v)} disabled={profiles.length === 0}>
-                {docIcon}
-                <span>{activeProfile?.name ?? "No mode"}</span>
-                {chevronDownIcon}
-              </button>
-              {picker && (
-                <div className="mode-picker bottom" onMouseLeave={() => setPicker(false)}>
-                  {profiles.map((p) => (
-                    <button
-                      key={p.id}
-                      className={p.isActive ? "active" : ""}
-                      onClick={async () => { setPicker(false); await onPickActive(p.id); }}
-                    >
-                      {docIcon}
-                      <span>{p.name || "Untitled"}</span>
-                      {p.isActive && <span className="check-small">{checkIcon}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <button
-            className={`toggle danger ${detectable ? "on" : ""}`}
-            onClick={onToggleDetectable}
-            title={detectable
-              ? "Overlay is visible in screen-share"
-              : "Overlay is hidden from screen-share (recommended)"}
-          >
-            <span className="track"><span className="thumb" /></span>
-            <span className="label">{detectable ? "Detectable" : "Undetectable"}</span>
-          </button>
-          <button className="link-settings small" onClick={onOpenSettings}>
-            Manage modes & files →
-          </button>
-          <button
-            className="link-settings small"
-            onClick={onOpenApiSettings}
-            title="Default profile info (brief + voice)"
-            style={{ display: "flex", alignItems: "center", gap: 6 }}
-          >
-            {gearIcon}
-            <span>Settings</span>
-          </button>
-          {currentUser.role === "superadmin" && (
-            <button className="link-settings small" onClick={onOpenAdmin}
-              style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span>Admin · users</span>
-            </button>
-          )}
-          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span title={currentUser.email}>{currentUser.email}</span>
-            <button className="link-settings small" onClick={onLogout}>Log out</button>
-          </div>
-        </div>
-      </aside>
-
-      {/* ----------- MAIN: meeting detail or welcome ----------- */}
-      <main className="chat-main">
-        <CalendarStrip
-          items={agenda}
-          onOpenMeeting={onOpenMeeting}
-        />
-        {openMeetingId ? (
-          <MeetingDetail
-            sessionId={openMeetingId}
-            profiles={profiles}
-            onBack={onCloseMeeting}
-          />
-        ) : (
-          <WelcomePane activeProfile={activeProfile} onStart={onStart} disabled={false} />
-        )}
-        {error && <div className="error" style={{ padding: "8px 24px" }}>{error}</div>}
-      </main>
-    </div>
-  );
-}
 
 function CalendarStrip({
   items,
@@ -686,6 +395,10 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// Mirrors the server's synthetic catch-all entry (db/companies.ts) for
+// meetings with no company. Read-only in the UI.
+const UNSORTED_COMPANY_ID = "__unsorted__";
+
 function PipelineList({
   pipeline,
   openMeetingId,
@@ -727,8 +440,10 @@ function PipelineList({
       </div>
       {visible.map((c) => {
         const isOpen = expanded.has(c.id);
+        // Synthetic catch-all bucket for company-less meetings — read-only.
+        const isUnsorted = c.id === UNSORTED_COMPANY_ID;
         return (
-          <div key={c.id} className={`pipeline-row status-${c.status}${isOpen ? " expanded" : ""}`}>
+          <div key={c.id} className={`pipeline-row status-${c.status}${isOpen ? " expanded" : ""}${isUnsorted ? " unsorted" : ""}`}>
             <div
               className="pipeline-row-head"
               onClick={() => setExpanded((prev) => {
@@ -746,10 +461,12 @@ function PipelineList({
                   {c.lastContactAt && <><span>·</span><span>{formatRelativeDate(c.lastContactAt)}</span></>}
                 </div>
               </div>
-              <StatusPill
-                status={c.status}
-                onChange={(s) => onUpdateStatus(c.id, s)}
-              />
+              {!isUnsorted && (
+                <StatusPill
+                  status={c.status}
+                  onChange={(s) => onUpdateStatus(c.id, s)}
+                />
+              )}
             </div>
             {isOpen && (
               <div className="pipeline-row-body">
@@ -772,14 +489,16 @@ function PipelineList({
                     </button>
                   ))}
                 </div>
-                <button
-                  className="pipeline-delete"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!confirm(`Remove ${c.name} from the pipeline? (Meetings stay; they just get unlinked.)`)) return;
-                    await onDelete(c.id);
-                  }}
-                >Remove from pipeline</button>
+                {!isUnsorted && (
+                  <button
+                    className="pipeline-delete"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!confirm(`Remove ${c.name} from the pipeline? (Meetings stay; they just get unlinked.)`)) return;
+                      await onDelete(c.id);
+                    }}
+                  >Remove from pipeline</button>
+                )}
               </div>
             )}
           </div>
@@ -1381,7 +1100,7 @@ function ProfileEditor({
   const justSaved = savedAt !== null && Date.now() - savedAt < 1500;
 
   return (
-    <>
+    <div className="editor-body">
       <div className="editor-header">
         <input
           className="title-input"
@@ -1636,7 +1355,7 @@ function ProfileEditor({
       </div>
 
       {localError && <div className="error">{localError}</div>}
-    </>
+    </div>
   );
 }
 
@@ -1784,7 +1503,10 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: api.AuthUser) => void }) {
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <h1>Brandon</h1>
+        <div className="auth-brand">
+          <BrandonMark size={52} />
+          <h1>Brandon</h1>
+        </div>
         <p className="auth-sub">{mode === "login" ? "Sign in to your account" : "Create an account"}</p>
         <input type="email" placeholder="Email" value={email} autoFocus
           onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
@@ -1930,24 +1652,69 @@ function AdminUsageTab() {
   );
 }
 
-/* ───────────────── ChatGPT-style home: unified chat + nav shell ────────── */
+/* ───────────────── Interviews pane content (company pipeline) ──────────── */
+function InterviewsContent({
+  pipeline, openMeetingId, onOpenMeeting, onUpdateCompanyStatus, onDeleteCompany,
+}: {
+  pipeline: PipelineEntry[];
+  openMeetingId: string | null;
+  onOpenMeeting: (id: string) => void;
+  onUpdateCompanyStatus: (id: string, status: CompanyStatus) => Promise<void>;
+  onDeleteCompany: (id: string) => Promise<void>;
+}) {
+  return (
+    <div className="interviews-content">
+      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <PipelineList pipeline={pipeline} openMeetingId={openMeetingId} onOpenMeeting={onOpenMeeting}
+          onUpdateStatus={onUpdateCompanyStatus} onDelete={onDeleteCompany} />
+      </div>
+    </div>
+  );
+}
+
+/* ───────────────── ChatGPT-style unified shell (chat + panes) ──────────── */
 
 interface ChatMsg { id: string; role: "user" | "assistant"; content: string; }
 
-function ChatView({
-  profiles, activeProfile, currentUser, theme,
-  onToggleTheme, onNavigate, onOpenSettings, onOpenAdmin, onLogout, onShrinkToOverlay,
+function ChatShell({
+  pane, setPane, profiles, activeProfile, currentUser, theme, detectable,
+  onToggleDetectable, onToggleTheme, onOpenSettings, onOpenAdmin, onLogout, onShrinkToOverlay,
+  sessions, pipeline, agenda, openMeetingId, onOpenMeeting, onCloseMeeting,
+  onUpdateCompanyStatus, onDeleteCompany,
+  selectedModeId, modeDetail, onSelectMode, onCreateMode, reloadModeDetail,
+  refreshProfiles, onStartInterview, onPickActive, error, setError,
 }: {
+  pane: View;
+  setPane: (v: View) => void;
   profiles: Profile[];
   activeProfile: Profile | null;
   currentUser: api.AuthUser;
   theme: Theme;
+  detectable: boolean;
+  onToggleDetectable: () => void;
   onToggleTheme: () => void;
-  onNavigate: (v: View) => void;
   onOpenSettings: () => void;
   onOpenAdmin: () => void;
   onLogout: () => void;
   onShrinkToOverlay: () => void;
+  sessions: Session[];
+  pipeline: PipelineEntry[];
+  agenda: AgendaItem[];
+  openMeetingId: string | null;
+  onOpenMeeting: (id: string) => void;
+  onCloseMeeting: () => void;
+  onUpdateCompanyStatus: (id: string, status: CompanyStatus) => Promise<void>;
+  onDeleteCompany: (id: string) => Promise<void>;
+  selectedModeId: string | null;
+  modeDetail: ProfileWithFiles | null;
+  onSelectMode: (id: string) => void;
+  onCreateMode: () => void;
+  reloadModeDetail: () => Promise<void>;
+  refreshProfiles: () => Promise<void>;
+  onStartInterview: (id: string) => void;
+  onPickActive: (id: string) => Promise<void>;
+  error: string;
+  setError: (s: string) => void;
 }) {
   const [convos, setConvos] = useState<import("@brandon/shared").Conversation[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -1959,6 +1726,10 @@ function ChatView({
   const [search, setSearch] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
+  // Which mode row's "⋯" menu is open (id), and inline-rename state for modes.
+  const [modeMenu, setModeMenu] = useState<string | null>(null);
+  const [modeRenaming, setModeRenaming] = useState<string | null>(null);
+  const [modeRenameText, setModeRenameText] = useState("");
   // The mode the NEXT new chat will use: a profile id, PLAIN, or "" = active mode.
   const [pickMode, setPickMode] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1970,14 +1741,14 @@ function ChatView({
   useEffect(() => { loadConvos(); }, [loadConvos]);
 
   const openConvo = useCallback(async (id: string) => {
-    setOpenId(id); setErr("");
+    setOpenId(id); setErr(""); setPane("chat");
     try {
       const { messages: msgs } = await api.getConversation(id);
       setMessages(msgs.map((m) => ({ id: m.id, role: m.role, content: m.content })));
     } catch (e) { setErr((e as Error).message); }
-  }, []);
+  }, [setPane]);
 
-  const newChat = useCallback(() => { setOpenId(null); setMessages([]); setInput(""); setImages([]); setErr(""); }, []);
+  const newChat = useCallback(() => { setOpenId(null); setMessages([]); setInput(""); setImages([]); setErr(""); setPane("chat"); }, [setPane]);
 
   const removeConvo = useCallback(async (id: string) => {
     if (!confirm("Delete this chat?")) return;
@@ -1995,6 +1766,31 @@ function ChatView({
     try { await api.renameConversation(id, title); await loadConvos(); }
     catch (e) { setErr((e as Error).message); }
   }, [renameText, loadConvos]);
+
+  // ── Mode (GPT-style) management: activate, rename, delete ─────────────────
+  const activateMode = useCallback(async (id: string) => {
+    setModeMenu(null);
+    try { await api.activateProfile(id); await refreshProfiles(); }
+    catch (e) { setError((e as Error).message); }
+  }, [refreshProfiles, setError]);
+
+  const commitModeRename = useCallback(async (id: string) => {
+    const name = modeRenameText.trim();
+    setModeRenaming(null);
+    if (!name) return;
+    try { await api.updateProfile(id, { name }); await refreshProfiles(); if (selectedModeId === id) await reloadModeDetail(); }
+    catch (e) { setError((e as Error).message); }
+  }, [modeRenameText, refreshProfiles, reloadModeDetail, selectedModeId, setError]);
+
+  const deleteMode = useCallback(async (id: string, name: string) => {
+    setModeMenu(null);
+    if (!confirm(`Delete mode "${name || "Untitled"}" and its files?`)) return;
+    try {
+      await api.deleteProfile(id);
+      if (selectedModeId === id) { onSelectMode(""); setPane("chat"); }
+      await refreshProfiles();
+    } catch (e) { setError((e as Error).message); }
+  }, [selectedModeId, onSelectMode, setPane, refreshProfiles, setError]);
 
   // Paste images into the composer.
   useEffect(() => {
@@ -2057,16 +1853,67 @@ function ChatView({
       <aside className="history-sidebar">
         <div className="history-sidebar-top">
           <div className="brand-row">
-            <span className="brand-label">Brandon</span>
+            <span className="brand-lockup">
+              <BrandonMark size={26} className="brand-mark" />
+              <span className="brand-label">Brandon</span>
+            </span>
             <button className="theme-toggle" onClick={onToggleTheme} title={theme === "light" ? "Switch to dark" : "Switch to light"}>
               {theme === "light" ? moonIcon : sunIcon}
             </button>
           </div>
           <button className="new-chat-btn" onClick={newChat}>{plusIcon}<span>New chat</span></button>
-          <button className="new-chat-btn secondary" onClick={onShrinkToOverlay} title="Go live — shrink to the interview overlay">
-            {chatIcon}<span>Interview overlay →</span>
-          </button>
+          <button
+            className="new-chat-btn secondary"
+            onClick={() => { if (activeProfile) onStartInterview(activeProfile.id); }}
+            disabled={!activeProfile}
+            title={activeProfile ? "Start a live interview with the active mode" : "Set an active mode first"}
+          >▶<span>New interview</span></button>
           <input className="sidebar-search" placeholder="Search chats" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+
+        {/* Modes — sit directly under New chat. Clicking swaps the RIGHT PANE. */}
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Modes</div>
+          {profiles.map((p) => (
+            <div
+              key={p.id}
+              className={`mode-row${pane === "modes" && selectedModeId === p.id ? " active" : ""}`}
+              onClick={() => { onSelectMode(p.id); setPane("modes"); }}
+            >
+              <span className="mode-row-icon" aria-hidden>{(p.name || "U").trim().charAt(0).toUpperCase()}</span>
+              {modeRenaming === p.id ? (
+                <input
+                  className="rename-input" autoFocus value={modeRenameText}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setModeRenameText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitModeRename(p.id); if (e.key === "Escape") setModeRenaming(null); }}
+                  onBlur={() => commitModeRename(p.id)}
+                />
+              ) : (
+                <span className="mode-row-name">{p.name || "Untitled"}</span>
+              )}
+              {p.isActive && <span className="mode-row-badge" title="Active mode">Active</span>}
+              <div className="mode-row-menu-wrap" onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="mode-row-more"
+                  title="Mode options"
+                  onClick={() => setModeMenu((m) => (m === p.id ? null : p.id))}
+                >{moreIcon}</button>
+                {modeMenu === p.id && (
+                  <div className="mode-menu" onMouseLeave={() => setModeMenu(null)}>
+                    {!p.isActive && <button onClick={() => activateMode(p.id)}>Set active</button>}
+                    <button onClick={() => { setModeMenu(null); onSelectMode(p.id); setPane("modes"); }}>Edit</button>
+                    <button onClick={() => { setModeMenu(null); setModeRenaming(p.id); setModeRenameText(p.name || ""); }}>Rename</button>
+                    <button className="danger" onClick={() => deleteMode(p.id, p.name)}>Delete</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          <button className="mode-row new" onClick={onCreateMode}>
+            <span className="mode-row-icon plus" aria-hidden>+</span>
+            <span className="mode-row-name">New mode</span>
+          </button>
         </div>
 
         <div className="history-list">
@@ -2090,11 +1937,11 @@ function ChatView({
           ))}
         </div>
 
-        {/* Brandon section — the rest of the app, ChatGPT-Library-style. */}
+        {/* Brandon section — interviews, calendar, settings. Clicking an item
+            swaps the RIGHT PANE; the sidebar stays put (one window). */}
         <div className="sidebar-section">
-          <div className="sidebar-section-title">Brandon</div>
-          <button className="sidebar-nav" onClick={() => onNavigate("home")}>Interviews</button>
-          <button className="sidebar-nav" onClick={() => onNavigate("settings")}>Modes &amp; files</button>
+          <button className={`sidebar-nav${pane === "home" ? " active" : ""}`} onClick={() => setPane("home")}>My interviews</button>
+          <button className={`sidebar-nav${pane === "calendar" ? " active" : ""}`} onClick={() => setPane("calendar")}>My calendar</button>
           <button className="sidebar-nav" onClick={onOpenSettings}>Settings</button>
           {currentUser.role === "superadmin" && <button className="sidebar-nav" onClick={onOpenAdmin}>Admin</button>}
         </div>
@@ -2108,67 +1955,127 @@ function ChatView({
       </aside>
 
       <main className="chat-main chat-thread">
-        {messages.length === 0 ? (
-          <div className="chat-empty">
-            <h1>Brandon</h1>
-            <p>Ask anything.</p>
-          </div>
-        ) : (
-          <div className="chat-scroll" ref={scrollRef}>
-            <div className="chat-inner">
-              {messages.map((m) => (
-                <div key={m.id} className={`chat-msg ${m.role}`}>
-                  <div className="chat-bubble">
-                    {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {err && <div className="error" style={{ textAlign: "center", padding: "0 0 8px" }}>{err}</div>}
-        <div className="chat-composer">
-          {images.length > 0 && (
-            <div className="chat-composer-images">
-              {images.map((im, i) => (
-                <div key={i} className="composer-thumb">
-                  <img src={im.previewUrl} alt="" />
-                  <button onClick={() => setImages((p) => p.filter((_, j) => j !== i))}>✕</button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="chat-composer-inner">
-            {/* Mode picker — only meaningful before the chat is created. */}
-            {!openId && (
-              <select className="mode-picker" value={pickMode} onChange={(e) => setPickMode(e.target.value)} title="Which mode answers">
-                <option value="">{activeProfile ? `Active: ${activeProfile.name}` : "Plain assistant"}</option>
-                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                <option value={api.PLAIN_MODE}>Plain assistant</option>
-              </select>
-            )}
-            <textarea
-              value={input}
-              placeholder="Ask anything"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              rows={1}
-            />
-            <label className="chat-attach" title="Attach image">
-              {paperclipIcon}
-              <input type="file" accept="image/*" multiple style={{ display: "none" }}
-                onChange={async (e) => {
-                  const fs = e.target.files; if (!fs) return;
-                  const conv = await Promise.all(Array.from(fs).filter((f) => f.type.startsWith("image/")).map(fileToImage));
-                  setImages((p) => [...p, ...conv]); e.target.value = "";
-                }} />
-            </label>
-            <button className="chat-send" onClick={send} disabled={(!input.trim() && images.length === 0) || streaming} title="Send (Enter)">
-              {sendIconUp}
+        {/* Top bar: pane title + "Go to overlay" (always available). */}
+        <div className="pane-topbar">
+          <span className="pane-title">
+            {pane === "chat" ? "Chat" : pane === "home" ? "My interviews" : pane === "calendar" ? "My calendar" : pane === "modes" ? "Modes & files" : ""}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              className={`toggle danger ${detectable ? "on" : ""}`}
+              onClick={onToggleDetectable}
+              title={detectable ? "Overlay is visible in screen-share" : "Overlay is hidden from screen-share (recommended)"}
+            >
+              <span className="track"><span className="thumb" /></span>
+              <span className="label">{detectable ? "Detectable" : "Undetectable"}</span>
+            </button>
+            <button className="overlay-btn" onClick={onShrinkToOverlay} title="Shrink to the live interview overlay">
+              Go to overlay →
             </button>
           </div>
-          {!openId && <div className="composer-mode-hint">Answering as: {modeLabel}</div>}
         </div>
+
+        {pane === "chat" && (<>
+          {messages.length === 0 ? (
+            <div className="chat-empty">
+              <BrandonMark size={64} className="chat-empty-mark" />
+              <h1>How can I help?</h1>
+              <p>Ask anything, or start a live interview from the sidebar.</p>
+            </div>
+          ) : (
+            <div className="chat-scroll" ref={scrollRef}>
+              <div className="chat-inner">
+                {messages.map((m) => (
+                  <div key={m.id} className={`chat-msg ${m.role}`}>
+                    {m.role === "assistant" && <BrandonMark size={26} className="chat-msg-avatar" />}
+                    <div className="chat-bubble">
+                      {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {err && <div className="error" style={{ textAlign: "center", padding: "0 0 8px" }}>{err}</div>}
+          <div className="chat-composer">
+            {images.length > 0 && (
+              <div className="chat-composer-images">
+                {images.map((im, i) => (
+                  <div key={i} className="composer-thumb">
+                    <img src={im.previewUrl} alt="" />
+                    <button onClick={() => setImages((p) => p.filter((_, j) => j !== i))}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="chat-composer-inner">
+              {!openId && (
+                <select className="mode-picker" value={pickMode} onChange={(e) => setPickMode(e.target.value)} title="Which mode answers">
+                  <option value="">{activeProfile ? `Active: ${activeProfile.name}` : "Plain assistant"}</option>
+                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value={api.PLAIN_MODE}>Plain assistant</option>
+                </select>
+              )}
+              <textarea
+                value={input}
+                placeholder="Ask anything"
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                rows={1}
+              />
+              <label className="chat-attach" title="Attach image">
+                {paperclipIcon}
+                <input type="file" accept="image/*" multiple style={{ display: "none" }}
+                  onChange={async (e) => {
+                    const fs = e.target.files; if (!fs) return;
+                    const conv = await Promise.all(Array.from(fs).filter((f) => f.type.startsWith("image/")).map(fileToImage));
+                    setImages((p) => [...p, ...conv]); e.target.value = "";
+                  }} />
+              </label>
+              <button className="chat-send" onClick={send} disabled={(!input.trim() && images.length === 0) || streaming} title="Send (Enter)">
+                {sendIconUp}
+              </button>
+            </div>
+            {!openId && <div className="composer-mode-hint">Answering as: {modeLabel}</div>}
+          </div>
+        </>)}
+
+        {pane === "calendar" && (
+          <div className="pane-scroll">
+            <CalendarStrip items={agenda} onOpenMeeting={(id) => { onOpenMeeting(id); setPane("home"); }} />
+          </div>
+        )}
+
+        {pane === "home" && (
+          <div className="pane-scroll">
+            {openMeetingId ? (
+              <MeetingDetail sessionId={openMeetingId} profiles={profiles} onBack={onCloseMeeting} />
+            ) : (
+              <InterviewsContent
+                pipeline={pipeline}
+                openMeetingId={openMeetingId} onOpenMeeting={onOpenMeeting}
+                onUpdateCompanyStatus={onUpdateCompanyStatus} onDeleteCompany={onDeleteCompany}
+              />
+            )}
+          </div>
+        )}
+
+        {pane === "modes" && (
+          <div className="pane-scroll">
+            {!modeDetail ? (
+              <div className="empty">Select a mode on the left, or click <strong>+ New mode</strong>.</div>
+            ) : (
+              <ProfileEditor
+                profile={modeDetail}
+                onChanged={reloadModeDetail}
+                onActivate={async () => { try { await api.activateProfile(modeDetail.id); await reloadModeDetail(); } catch (e) { setError((e as Error).message); } }}
+                onDelete={async () => { if (!confirm(`Delete mode "${modeDetail.name}" and its files?`)) return; try { await api.deleteProfile(modeDetail.id); onSelectMode(""); await refreshProfiles(); } catch (e) { setError((e as Error).message); } }}
+                onStart={() => onStartInterview(modeDetail.id)}
+              />
+            )}
+            {error && <div className="error" style={{ padding: "8px 24px" }}>{error}</div>}
+          </div>
+        )}
       </main>
     </div>
   );

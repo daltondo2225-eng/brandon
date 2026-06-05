@@ -4,6 +4,7 @@ import * as api from "../lib/api";
 import { bridge } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
 import { fileToImage, imagesFromClipboard } from "../lib/image";
+import { BrandonMark } from "../lib/BrandonMark";
 
 interface ParsedResponse {
   bullets: string[];
@@ -467,7 +468,7 @@ export function OverlayApp() {
   return (
     <div className="overlay-shell">
       <div className="overlay-toppill">
-        <div className="brand-mark">B</div>
+        <BrandonMark size={22} className="brand-mark" />
         <button onClick={() => setCollapsed((v) => !v)} title={collapsed ? "Show panel" : "Hide panel"}>
           {collapsed ? chevronUp : chevronDown}
           <span>{collapsed ? "Show" : "Hide"}</span>

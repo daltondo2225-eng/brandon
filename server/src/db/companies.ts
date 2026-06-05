@@ -119,16 +119,40 @@ interface SessionAggRow {
  * sessions for that profile count — companies with no sessions under this
  * profile are omitted entirely.
  */
+// Synthetic id for the catch-all "Unsorted" pipeline entry holding sessions
+// that have no company. Not a real row — the client treats it as read-only
+// (no status change / delete), and it always sorts last.
+export const UNSORTED_COMPANY_ID = "__unsorted__";
+
+function aggregateEntry(c: Company, sessions: SessionAggRow[]): PipelineEntry {
+  const latest = sessions[0] ?? null;
+  return {
+    ...c,
+    sessionCount: sessions.length,
+    lastContactAt: latest ? Number(latest.started_at) : null,
+    latestStage: latest ? parseStageFromTitle(latest.title) : null,
+    latestSessionTitle: latest ? latest.title : null,
+    sessions: sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      startedAt: Number(s.started_at),
+      endedAt: s.ended_at === null ? null : Number(s.ended_at),
+    })),
+    nextSteps: latest?.recap ? parseNextStepsFromRecap(latest.recap) : [],
+  };
+}
+
 export function listPipeline(userId: string, profileId?: string): PipelineEntry[] {
   const companies = listCompanies(userId);
-  if (companies.length === 0) return [];
   // Pull all relevant sessions in one query so we don't N+1. Scoped to the user.
+  // company_id may be NULL — those roll up into the synthetic "Unsorted" entry
+  // so no meeting is ever hidden (replaces the old separate Meetings tab).
   const rows = profileId
     ? asRows<SessionAggRow>(
         db.prepare(
           `SELECT id, title, started_at, ended_at, recap, company_id
              FROM sessions
-            WHERE company_id IS NOT NULL AND user_id = ? AND profile_id = ?
+            WHERE user_id = ? AND profile_id = ?
             ORDER BY started_at DESC`,
         ).all(userId, profileId),
       )
@@ -136,36 +160,31 @@ export function listPipeline(userId: string, profileId?: string): PipelineEntry[
         db.prepare(
           `SELECT id, title, started_at, ended_at, recap, company_id
              FROM sessions
-            WHERE company_id IS NOT NULL AND user_id = ?
+            WHERE user_id = ?
             ORDER BY started_at DESC`,
         ).all(userId),
       );
   const byCompany = new Map<string, SessionAggRow[]>();
+  const orphans: SessionAggRow[] = [];
   for (const r of rows) {
+    if (!r.company_id) { orphans.push(r); continue; }
     const list = byCompany.get(r.company_id) ?? [];
     list.push(r);
     byCompany.set(r.company_id, list);
   }
-  return companies
+  const entries = companies
     .filter((c) => !profileId || byCompany.has(c.id))
-    .map((c) => {
-      const sessions = byCompany.get(c.id) ?? [];
-      const latest = sessions[0] ?? null;
-      return {
-        ...c,
-        sessionCount: sessions.length,
-        lastContactAt: latest ? Number(latest.started_at) : null,
-        latestStage: latest ? parseStageFromTitle(latest.title) : null,
-        latestSessionTitle: latest ? latest.title : null,
-        sessions: sessions.map((s) => ({
-          id: s.id,
-          title: s.title,
-          startedAt: Number(s.started_at),
-          endedAt: s.ended_at === null ? null : Number(s.ended_at),
-        })),
-        nextSteps: latest?.recap ? parseNextStepsFromRecap(latest.recap) : [],
-      };
-    });
+    .map((c) => aggregateEntry(c, byCompany.get(c.id) ?? []));
+
+  if (orphans.length > 0) {
+    const now = orphans[0] ? Number(orphans[0].started_at) : Date.now();
+    const unsorted: Company = {
+      id: UNSORTED_COMPANY_ID, name: "Unsorted", status: "active",
+      notes: null, createdAt: now, updatedAt: now,
+    };
+    entries.push(aggregateEntry(unsorted, orphans));
+  }
+  return entries;
 }
 
 /**

@@ -50,7 +50,13 @@ app.addHook("onRequest", async (req, reply) => {
   try {
     const payload = await verifyToken(token);
     userId = payload.sub;
-  } catch {
+  } catch (err) {
+    // Log auth rejections (missing/expired/forged token) for debugging — never
+    // logs the token itself, only its length and the verify error.
+    req.log.warn(
+      { method: req.method, path, tokenLen: token.length, reason: (err as Error).message },
+      "auth rejected",
+    );
     return reply.unauthorized("Invalid or missing token");
   }
   const user = getUserById(userId);
