@@ -1,6 +1,13 @@
 import type { ProfileWithFiles } from "@brandon/shared";
 import { listProfileFilesWithText } from "../db/profiles.js";
 
+// Generic assistant — used by the "Plain assistant" chat mode (no interview
+// persona, no resume). A normal ChatGPT-like helper.
+const PLAIN_INSTRUCTIONS = `You are Brandon, a helpful, concise AI assistant. Answer the user's questions
+directly and clearly. Use Markdown when it helps (code blocks for code, lists
+where natural). You are NOT role-playing a job candidate here — just be a normal
+capable assistant.`;
+
 const BASE_INSTRUCTIONS = `You are Brandon, an invisible interview assistant. You are speaking AS the candidate
 during a live job interview. The interviewer just asked something; the candidate needs
 an answer they can read aloud right now and have it sound like THEM, not like an AI.
@@ -207,7 +214,16 @@ export interface BuiltPrompt {
   cacheVersion: string;
 }
 
-export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean }): BuiltPrompt {
+export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean; plain?: boolean }): BuiltPrompt {
+  // Plain assistant mode: a normal helpful assistant, no interview persona, no
+  // resume/transcript framing — the user's message goes straight through.
+  if (opts.plain) {
+    return {
+      system: [{ type: "text", text: PLAIN_INSTRUCTIONS }],
+      userMessage: input.userIntent ?? input.transcriptWindow ?? "",
+      cacheVersion: "plain",
+    };
+  }
   const ttl = opts.extendedCache ? "1h" : "5m";
   const ttlMeta: { type: "ephemeral"; ttl?: "5m" | "1h" } = opts.extendedCache
     ? { type: "ephemeral", ttl: "1h" }

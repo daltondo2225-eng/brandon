@@ -437,8 +437,19 @@ export async function getConversation(id: string): Promise<{ conversation: Conve
   const res = await fetch(`${await base()}/conversations/${id}`, { headers: await authHeaders() });
   return handle<{ conversation: Conversation; messages: ChatMessage[] }>(res);
 }
-export async function createConversation(): Promise<Conversation> {
-  const res = await fetch(`${await base()}/conversations`, { method: "POST", headers: await jsonHeaders(), body: "{}" });
+/** profileId: a mode id, "__plain__" for the plain assistant, or undefined → active mode. */
+export const PLAIN_MODE = "__plain__";
+export async function createConversation(profileId?: string | null): Promise<Conversation> {
+  const res = await fetch(`${await base()}/conversations`, {
+    method: "POST", headers: await jsonHeaders(),
+    body: JSON.stringify(profileId === undefined ? {} : { profileId }),
+  });
+  return handle<Conversation>(res);
+}
+export async function renameConversation(id: string, title: string): Promise<Conversation> {
+  const res = await fetch(`${await base()}/conversations/${id}`, {
+    method: "PATCH", headers: await jsonHeaders(), body: JSON.stringify({ title }),
+  });
   return handle<Conversation>(res);
 }
 export async function deleteConversation(id: string): Promise<void> {
@@ -446,10 +457,13 @@ export async function deleteConversation(id: string): Promise<void> {
   if (!res.ok && res.status !== 204) throw new Error(`${res.status}`);
 }
 export async function streamConversationMessage(
-  conversationId: string, content: string, handlers: ChatStreamHandlers, signal?: AbortSignal,
+  conversationId: string, content: string,
+  opts: { images?: ChatImage[] },
+  handlers: ChatStreamHandlers, signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${await base()}/conversations/${conversationId}/messages`, {
-    method: "POST", headers: await jsonHeaders(), body: JSON.stringify({ content }), signal,
+    method: "POST", headers: await jsonHeaders(),
+    body: JSON.stringify({ content, images: opts.images }), signal,
   });
   await pumpSSE(res, handlers);
 }

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import * as api from "../lib/api";
 import { bridge } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
+import { fileToImage, imagesFromClipboard } from "../lib/image";
 
 interface ParsedResponse {
   bullets: string[];
@@ -107,36 +108,11 @@ export function OverlayApp() {
   const bumpFontSize = (delta: number) =>
     setFontSize((v) => Math.max(12, Math.min(32, v + delta)));
 
-  // Convert a File / Blob into a base64-without-prefix string we can send to
-  // the server. Reads as data URL then strips the `data:type;base64,` head.
-  const fileToImage = useCallback(async (file: File | Blob): Promise<{ mediaType: string; data: string; previewUrl: string }> => {
-    const ok = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-    const mediaType = ok.includes(file.type) ? file.type : "image/png";
-    const dataUrl: string = await new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(String(fr.result ?? ""));
-      fr.onerror = reject;
-      fr.readAsDataURL(file);
-    });
-    const comma = dataUrl.indexOf(",");
-    const data = comma >= 0 ? dataUrl.slice(comma + 1) : "";
-    return { mediaType, data, previewUrl: dataUrl };
-  }, []);
-
   // Listen for Ctrl+V paste anywhere in the overlay; if the clipboard has an
   // image, attach it as a pending image for the next chat.
   useEffect(() => {
     const onPaste = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const imgs: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        if (it.kind === "file" && it.type.startsWith("image/")) {
-          const f = it.getAsFile();
-          if (f) imgs.push(f);
-        }
-      }
+      const imgs = imagesFromClipboard(e);
       if (!imgs.length) return;
       e.preventDefault();
       const converted = await Promise.all(imgs.map(fileToImage));
@@ -144,7 +120,7 @@ export function OverlayApp() {
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [fileToImage]);
+  }, []);
 
   const attachFromFileDialog = useCallback(async (files: FileList | null) => {
     if (!files) return;
@@ -154,7 +130,7 @@ export function OverlayApp() {
       if (f.type.startsWith("image/")) out.push(await fileToImage(f));
     }
     if (out.length) setPendingImages((prev) => [...prev, ...out]);
-  }, [fileToImage]);
+  }, []);
 
   const removeImage = useCallback((idx: number) => {
     setPendingImages((prev) => prev.filter((_, i) => i !== idx));

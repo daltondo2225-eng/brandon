@@ -35,6 +35,8 @@ export interface StreamInput {
   sessionContext?: { targetCompany: string | null; jobDescription: string | null };
   /** The owning user's global defaults (interview brief + voice sample). */
   defaults?: { defaultInterviewBrief: string; defaultVoiceSample: string };
+  /** Plain assistant mode — generic helper, no interview persona. */
+  plain?: boolean;
   onText: (text: string) => void;
   onDone: (usage: ChatUsage) => void;
   /**
@@ -219,7 +221,7 @@ export async function generateRecap(input: {
 export async function streamCompletion(input: StreamInput): Promise<void> {
   const built = buildPrompt(
     { ...input, sessionContext: input.sessionContext },
-    { extendedCache: config.extendedCache },
+    { extendedCache: config.extendedCache, plain: input.plain },
   );
 
   // Build a proper multi-turn message list: prior turns (verbatim) + the new user turn.

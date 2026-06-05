@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { ChatTurn } from "@brandon/shared";
+import type { ChatImage, ChatTurn, ProfileWithFiles } from "@brandon/shared";
 import { providerForModel } from "@brandon/shared";
 import {
   addMessage, createConversation, deleteConversation, getConversation,
@@ -15,6 +15,12 @@ import { streamCompletion as streamGemini } from "../gemini/client.js";
 import { requireActive } from "../auth/guards.js";
 import { isAllowedOrigin } from "../cors.js";
 
+// Sentinel stored in conversations.profile_id meaning "plain assistant" (no
+// interview persona). A real profile id otherwise; we resolve the model below.
+const PLAIN = "__plain__";
+// Default raw model for the plain assistant (no persona).
+const PLAIN_MODEL = "claude-opus-4-8";
+
 export async function registerConversationRoutes(app: FastifyInstance): Promise<void> {
   app.get("/conversations", async (req) => ({ conversations: listConversations(req.user!.id) }));
 
@@ -24,11 +30,18 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
     return { conversation: conv, messages: listMessages(conv.id) };
   });
 
+  // Create a chat. Optional profileId: a real mode id, "__plain__" for the plain
+  // assistant, or omitted → the user's active mode.
+  const CreateBody = z.object({ profileId: z.string().nullable().optional() });
   app.post("/conversations", async (req, reply) => {
     if (requireActive(req, reply)) return;
-    // Tie the chat to the user's active mode so its model+persona answer.
-    const active = getActiveProfile(req.user!.id);
-    const conv = createConversation(req.user!.id, active?.id ?? null);
+    const parsed = CreateBody.safeParse(req.body ?? {});
+    const requested = parsed.success ? parsed.data.profileId : undefined;
+    let profileId: string | null;
+    if (requested === PLAIN) profileId = PLAIN;
+    else if (requested) profileId = requested; // a specific mode
+    else profileId = getActiveProfile(req.user!.id)?.id ?? null;
+    const conv = createConversation(req.user!.id, profileId);
     return reply.code(201).send(conv);
   });
 
@@ -38,8 +51,23 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
     return reply.code(204).send();
   });
 
+  // Rename a chat.
+  const RenameBody = z.object({ title: z.string().trim().min(1).max(120) });
+  app.patch<{ Params: { id: string } }>("/conversations/:id", async (req, reply) => {
+    if (requireActive(req, reply)) return;
+    const conv = getConversation(req.params.id, req.user!.id);
+    if (!conv) return reply.notFound("Conversation not found");
+    const parsed = RenameBody.safeParse(req.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    renameConversation(conv.id, req.user!.id, parsed.data.title);
+    return { ...conv, title: parsed.data.title };
+  });
+
   // Post a user message and stream the assistant reply (SSE). Persists both.
-  const PostBody = z.object({ content: z.string().min(1) });
+  const PostBody = z.object({
+    content: z.string().min(1),
+    images: z.array(z.object({ mediaType: z.string(), data: z.string() })).optional(),
+  });
   app.post<{ Params: { id: string } }>("/conversations/:id/messages", async (req, reply) => {
     if (requireActive(req, reply)) return;
     const conv = getConversation(req.params.id, req.user!.id);
@@ -47,11 +75,17 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
     const parsed = PostBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
-    // The mode that answers: the conversation's profile, else the active one.
-    const profileId = conv.profileId ?? getActiveProfile(req.user!.id)?.id ?? null;
-    const profile = profileId ? getProfile(profileId, req.user!.id) : null;
-    if (!profile) {
-      return reply.badRequest("No active mode — set one as Active to chat.");
+    // Resolve who answers. Plain mode → a synthetic empty profile + plain flag
+    // (generic assistant, no persona/resume). Otherwise the conversation's mode,
+    // else the active one.
+    const isPlain = conv.profileId === PLAIN;
+    let profile: ProfileWithFiles | null;
+    if (isPlain) {
+      profile = makePlainProfile(req.user!.id);
+    } else {
+      const profileId = conv.profileId ?? getActiveProfile(req.user!.id)?.id ?? null;
+      profile = profileId ? getProfile(profileId, req.user!.id) : null;
+      if (!profile) return reply.badRequest("No mode selected — pick a mode or 'Plain assistant'.");
     }
 
     // Prior messages → priorTurns (pairs of user/assistant).
@@ -100,11 +134,13 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
         transcriptWindow: "",
         userIntent: userMsg,
         priorTurns,
+        images: parsed.data.images,
         defaults,
+        plain: isPlain,
         onText: (text) => { full += text; send("chunk", { type: "text", text }); },
         onTool: (evt) => send("chunk", { type: "tool", ...evt }),
         onDone: (usage) => {
-          logUsage({ userId: req.user!.id, provider, model: profile.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
+          logUsage({ userId: req.user!.id, provider, model: profile!.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
           send("done", { type: "done", usage });
         },
       });
@@ -117,4 +153,17 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
       reply.raw.end();
     }
   });
+}
+
+// A throwaway profile object for plain mode. With plain:true, buildPrompt skips
+// all persona/resume logic, so only `id` (no files) and `model` matter.
+function makePlainProfile(userId: string): ProfileWithFiles {
+  const now = Date.now();
+  return {
+    id: `plain-${userId}`, name: "Plain assistant", realtimePrompt: "",
+    notesTemplate: null, model: PLAIN_MODEL, isActive: false,
+    fullName: null, jobTitle: null, company: null, location: null,
+    voiceSample: null, interviewBrief: null, repoRoot: null,
+    createdAt: now, updatedAt: now, files: [],
+  };
 }

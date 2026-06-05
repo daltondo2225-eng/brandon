@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../lib/api";
 import { bridge, getConfig, resetConfigCache } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
+import { fileToImage, imagesFromClipboard } from "../lib/image";
 
 const DETECTABLE_KEY = "brandon.detectable";
 const THEME_KEY = "brandon.theme";
@@ -28,7 +29,8 @@ function useTheme(): [Theme, () => void] {
 }
 
 function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogout: () => void }) {
-  const [view, setView] = useState<View>("home");
+  // Chat is the default home (ChatGPT-style). "home" is now the Interviews pane.
+  const [view, setView] = useState<View>("chat");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProfileWithFiles | null>(null);
@@ -190,10 +192,16 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
     return (
       <>{settingsModal}{adminModal}
         <ChatView
+          profiles={profiles}
           activeProfile={activeProfile}
+          currentUser={currentUser}
           theme={theme}
           onToggleTheme={toggleTheme}
-          onBackHome={() => setView("home")}
+          onNavigate={(v) => setView(v)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenAdmin={() => setAdminOpen(true)}
+          onLogout={onLogout}
+          onShrinkToOverlay={() => { bridge.showOverlay(); bridge.hideMainWindow(); }}
         />
       </>
     );
@@ -1922,22 +1930,37 @@ function AdminUsageTab() {
   );
 }
 
-/* ───────────────────────── Practice chat (ChatGPT-style) ──────────────── */
+/* ───────────────── ChatGPT-style home: unified chat + nav shell ────────── */
 
 interface ChatMsg { id: string; role: "user" | "assistant"; content: string; }
 
-function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
+function ChatView({
+  profiles, activeProfile, currentUser, theme,
+  onToggleTheme, onNavigate, onOpenSettings, onOpenAdmin, onLogout, onShrinkToOverlay,
+}: {
+  profiles: Profile[];
   activeProfile: Profile | null;
+  currentUser: api.AuthUser;
   theme: Theme;
   onToggleTheme: () => void;
-  onBackHome: () => void;
+  onNavigate: (v: View) => void;
+  onOpenSettings: () => void;
+  onOpenAdmin: () => void;
+  onLogout: () => void;
+  onShrinkToOverlay: () => void;
 }) {
   const [convos, setConvos] = useState<import("@brandon/shared").Conversation[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
+  const [images, setImages] = useState<import("../lib/image").PendingImage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [err, setErr] = useState("");
+  const [search, setSearch] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+  // The mode the NEXT new chat will use: a profile id, PLAIN, or "" = active mode.
+  const [pickMode, setPickMode] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -1954,25 +1977,38 @@ function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
     } catch (e) { setErr((e as Error).message); }
   }, []);
 
-  const newChat = useCallback(async () => {
-    setErr("");
-    try {
-      const c = await api.createConversation();
-      await loadConvos();
-      setOpenId(c.id); setMessages([]);
-    } catch (e) { setErr((e as Error).message); }
-  }, [loadConvos]);
+  const newChat = useCallback(() => { setOpenId(null); setMessages([]); setInput(""); setImages([]); setErr(""); }, []);
 
   const removeConvo = useCallback(async (id: string) => {
     if (!confirm("Delete this chat?")) return;
     try {
       await api.deleteConversation(id);
-      if (openId === id) { setOpenId(null); setMessages([]); }
+      if (openId === id) newChat();
       await loadConvos();
     } catch (e) { setErr((e as Error).message); }
-  }, [openId, loadConvos]);
+  }, [openId, loadConvos, newChat]);
 
-  // Auto-scroll to the bottom as the reply streams.
+  const commitRename = useCallback(async (id: string) => {
+    const title = renameText.trim();
+    setRenaming(null);
+    if (!title) return;
+    try { await api.renameConversation(id, title); await loadConvos(); }
+    catch (e) { setErr((e as Error).message); }
+  }, [renameText, loadConvos]);
+
+  // Paste images into the composer.
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      const imgs = imagesFromClipboard(e);
+      if (!imgs.length) return;
+      e.preventDefault();
+      const conv = await Promise.all(imgs.map(fileToImage));
+      setImages((prev) => [...prev, ...conv]);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -1980,22 +2016,24 @@ function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if ((!text && images.length === 0) || streaming) return;
     setErr("");
-    // Ensure a conversation exists.
     let convId = openId;
     if (!convId) {
-      try { const c = await api.createConversation(); convId = c.id; setOpenId(c.id); }
-      catch (e) { setErr((e as Error).message); return; }
+      try {
+        const c = await api.createConversation(pickMode === "" ? undefined : pickMode);
+        convId = c.id; setOpenId(c.id);
+      } catch (e) { setErr((e as Error).message); return; }
     }
-    setInput("");
-    setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: text }, { id: `a-${Date.now()}`, role: "assistant", content: "" }]);
+    const imgs = images.map((im) => ({ mediaType: im.mediaType, data: im.data }));
+    setInput(""); setImages([]);
+    setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: text || "📷 image" }, { id: `a-${Date.now()}`, role: "assistant", content: "" }]);
     setStreaming(true);
     const controller = new AbortController();
     abortRef.current = controller;
     let acc = "";
     try {
-      await api.streamConversationMessage(convId!, text, {
+      await api.streamConversationMessage(convId!, text || "(see image)", { images: imgs }, {
         onText: (t) => {
           acc += t;
           setMessages((m) => { const copy = [...m]; copy[copy.length - 1] = { ...copy[copy.length - 1], content: acc }; return copy; });
@@ -2007,32 +2045,64 @@ function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
       if ((e as Error).name !== "AbortError") setErr((e as Error).message);
       setStreaming(false);
     }
-  }, [input, streaming, openId, loadConvos]);
+  }, [input, images, streaming, openId, pickMode, loadConvos]);
+
+  const filtered = convos.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()));
+  const modeLabel = pickMode === api.PLAIN_MODE ? "Plain assistant"
+    : pickMode ? (profiles.find((p) => p.id === pickMode)?.name ?? "Mode")
+    : (activeProfile ? `${activeProfile.name} (active)` : "Plain assistant");
 
   return (
     <div className="chat-layout">
       <aside className="history-sidebar">
         <div className="history-sidebar-top">
           <div className="brand-row">
-            <button className="link-settings small" onClick={onBackHome} title="Back to home">← Home</button>
+            <span className="brand-label">Brandon</span>
             <button className="theme-toggle" onClick={onToggleTheme} title={theme === "light" ? "Switch to dark" : "Switch to light"}>
               {theme === "light" ? moonIcon : sunIcon}
             </button>
           </div>
           <button className="new-chat-btn" onClick={newChat}>{plusIcon}<span>New chat</span></button>
+          <button className="new-chat-btn secondary" onClick={onShrinkToOverlay} title="Go live — shrink to the interview overlay">
+            {chatIcon}<span>Interview overlay →</span>
+          </button>
+          <input className="sidebar-search" placeholder="Search chats" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+
         <div className="history-list">
-          {convos.length === 0 && <div className="history-empty">No chats yet.</div>}
-          {convos.map((c) => (
+          {filtered.length === 0 && <div className="history-empty">{search ? "No matches." : "No chats yet."}</div>}
+          {filtered.map((c) => (
             <div key={c.id} className={`history-row chat-row${c.id === openId ? " active" : ""}`} onClick={() => openConvo(c.id)}>
-              <span className="history-row-title">{c.title || "New chat"}</span>
+              {renaming === c.id ? (
+                <input className="rename-input" autoFocus value={renameText}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setRenameText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitRename(c.id); if (e.key === "Escape") setRenaming(null); }}
+                  onBlur={() => commitRename(c.id)} />
+              ) : (
+                <span className="history-row-title"
+                  onDoubleClick={(e) => { e.stopPropagation(); setRenaming(c.id); setRenameText(c.title); }}>
+                  {c.title || "New chat"}
+                </span>
+              )}
               <button className="chat-del" title="Delete" onClick={(e) => { e.stopPropagation(); removeConvo(c.id); }}>{trashIcon}</button>
             </div>
           ))}
         </div>
+
+        {/* Brandon section — the rest of the app, ChatGPT-Library-style. */}
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Brandon</div>
+          <button className="sidebar-nav" onClick={() => onNavigate("home")}>Interviews</button>
+          <button className="sidebar-nav" onClick={() => onNavigate("settings")}>Modes &amp; files</button>
+          <button className="sidebar-nav" onClick={onOpenSettings}>Settings</button>
+          {currentUser.role === "superadmin" && <button className="sidebar-nav" onClick={onOpenAdmin}>Admin</button>}
+        </div>
+
         <div className="history-sidebar-footer">
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {activeProfile ? <>Answering as <strong>{activeProfile.name}</strong></> : "No active mode — set one on Home"}
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span title={currentUser.email}>{currentUser.email}</span>
+            <button className="link-settings small" onClick={onLogout}>Log out</button>
           </div>
         </div>
       </aside>
@@ -2040,8 +2110,8 @@ function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
       <main className="chat-main chat-thread">
         {messages.length === 0 ? (
           <div className="chat-empty">
-            <h1>Practice chat</h1>
-            <p>Ask anything — answered in your interview voice{activeProfile ? ` (${activeProfile.name})` : ""}.</p>
+            <h1>Brandon</h1>
+            <p>Ask anything.</p>
           </div>
         ) : (
           <div className="chat-scroll" ref={scrollRef}>
@@ -2058,7 +2128,25 @@ function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
         )}
         {err && <div className="error" style={{ textAlign: "center", padding: "0 0 8px" }}>{err}</div>}
         <div className="chat-composer">
+          {images.length > 0 && (
+            <div className="chat-composer-images">
+              {images.map((im, i) => (
+                <div key={i} className="composer-thumb">
+                  <img src={im.previewUrl} alt="" />
+                  <button onClick={() => setImages((p) => p.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="chat-composer-inner">
+            {/* Mode picker — only meaningful before the chat is created. */}
+            {!openId && (
+              <select className="mode-picker" value={pickMode} onChange={(e) => setPickMode(e.target.value)} title="Which mode answers">
+                <option value="">{activeProfile ? `Active: ${activeProfile.name}` : "Plain assistant"}</option>
+                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <option value={api.PLAIN_MODE}>Plain assistant</option>
+              </select>
+            )}
             <textarea
               value={input}
               placeholder="Ask anything"
@@ -2066,10 +2154,20 @@ function ChatView({ activeProfile, theme, onToggleTheme, onBackHome }: {
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               rows={1}
             />
-            <button className="chat-send" onClick={send} disabled={!input.trim() || streaming} title="Send (Enter)">
+            <label className="chat-attach" title="Attach image">
+              {paperclipIcon}
+              <input type="file" accept="image/*" multiple style={{ display: "none" }}
+                onChange={async (e) => {
+                  const fs = e.target.files; if (!fs) return;
+                  const conv = await Promise.all(Array.from(fs).filter((f) => f.type.startsWith("image/")).map(fileToImage));
+                  setImages((p) => [...p, ...conv]); e.target.value = "";
+                }} />
+            </label>
+            <button className="chat-send" onClick={send} disabled={(!input.trim() && images.length === 0) || streaming} title="Send (Enter)">
               {sendIconUp}
             </button>
           </div>
+          {!openId && <div className="composer-mode-hint">Answering as: {modeLabel}</div>}
         </div>
       </main>
     </div>
