@@ -70,6 +70,7 @@ function createMainWindow(): BrowserWindow {
     height: 720,
     show: false,
     title: "Brandon",
+    icon: resourcePath("icons", "icon.ico"),
     // styles.css makes body/html transparent (needed for the frameless overlay
     // window which shares the stylesheet). Force the main window's underlying
     // surface to opaque white so the sidebar and chat panel render visibly.
