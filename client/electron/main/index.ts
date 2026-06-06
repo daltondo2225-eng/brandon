@@ -68,6 +68,10 @@ function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1100,
     height: 720,
+    minWidth: 720,
+    minHeight: 480,
+    resizable: true,
+    maximizable: true,
     show: false,
     title: "Brandon",
     icon: resourcePath("icons", "icon.ico"),

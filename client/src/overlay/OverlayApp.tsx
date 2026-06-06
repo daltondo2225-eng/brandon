@@ -102,6 +102,19 @@ export function OverlayApp() {
   const bumpFontSize = (delta: number) =>
     updatePrefs({ fontSize: Math.max(12, Math.min(32, prefs.fontSize + delta)) });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsWrapRef = useRef<HTMLDivElement>(null);
+  // Close the appearance popover on a click anywhere outside it (NOT on
+  // mouse-leave, which closed it the moment you moved toward the slider).
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (settingsWrapRef.current && !settingsWrapRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [settingsOpen]);
 
   // Listen for Ctrl+V paste anywhere in the overlay; if the clipboard has an
   // image, attach it as a pending image for the next chat.
@@ -533,14 +546,14 @@ export function OverlayApp() {
           disabled={fontSize >= 32}
           title={`Larger (currently ${fontSize}px)`}
         >A+</button>
-        <div className="ov-settings-wrap">
+        <div className="ov-settings-wrap" ref={settingsWrapRef}>
           <button
             className={`ov-gear${settingsOpen ? " active" : ""}`}
             onClick={() => setSettingsOpen((v) => !v)}
             title="Overlay appearance"
           >{gearIcon}</button>
           {settingsOpen && (
-            <div className="ov-settings" onMouseLeave={() => setSettingsOpen(false)}>
+            <div className="ov-settings">
               <div className="ov-row">
                 <span className="ov-label">Text size</span>
                 <div className="ov-size">
