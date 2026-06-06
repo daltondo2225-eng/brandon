@@ -184,7 +184,7 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
   ) : null;
 
   const settingsModal = settingsOpen ? (
-    <SettingsModal onClose={() => setSettingsOpen(false)} currentUser={currentUser} />
+    <SettingsModal onClose={() => setSettingsOpen(false)} currentUser={currentUser} theme={theme} onToggleTheme={toggleTheme} />
   ) : null;
 
   const adminModal = adminOpen ? (
@@ -597,7 +597,7 @@ function StartInterviewModal({
   );
 }
 
-function SettingsModal({ onClose, currentUser }: { onClose: () => void; currentUser: api.AuthUser }) {
+function SettingsModal({ onClose, currentUser, theme, onToggleTheme }: { onClose: () => void; currentUser: api.AuthUser; theme: Theme; onToggleTheme: () => void }) {
   const isAdmin = currentUser.role === "superadmin";
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -607,6 +607,18 @@ function SettingsModal({ onClose, currentUser }: { onClose: () => void; currentU
           <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
         </div>
         <div className="modal-body">
+          {/* Appearance: app theme (the overlay has its own theme in its gear menu). */}
+          <div className="field">
+            <label>Appearance</label>
+            <div className="theme-choice">
+              <button className={theme === "light" ? "active" : ""} onClick={() => { if (theme !== "light") onToggleTheme(); }}>
+                {sunIcon}<span>Light</span>
+              </button>
+              <button className={theme === "dark" ? "active" : ""} onClick={() => { if (theme !== "dark") onToggleTheme(); }}>
+                {moonIcon}<span>Dark</span>
+              </button>
+            </div>
+          </div>
           {/* API keys: admins edit them; everyone else sees model availability. */}
           {isAdmin ? <AdminKeysSection /> : <ModelStatusSection />}
           <MyUsageSection />

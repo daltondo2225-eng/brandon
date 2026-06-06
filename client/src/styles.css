@@ -1120,7 +1120,7 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   background: rgba(var(--ov-bg, 20, 20, 22), var(--ov-opacity, 0.82));
   color: rgb(var(--ov-text, 245, 245, 247));
   font-family: var(--ov-font, inherit);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(var(--ov-blur, 15px));
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
   padding: 10px 14px 12px;
@@ -2249,3 +2249,14 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 
 /* ---- Mode avatar: neutral (match the calm palette) ---- */
 .mode-row-icon { background: var(--bg-elev); color: var(--text-dim); box-shadow: none; font-weight: 600; }
+
+/* Theme picker in Settings (Light / Dark segmented). */
+.theme-choice { display: flex; gap: 8px; margin-top: 6px; }
+.theme-choice button {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--border-strong); background: var(--bg-card);
+  color: var(--text-dim); font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.theme-choice button:hover { background: var(--bg-hover); color: var(--text); }
+.theme-choice button.active { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft); }

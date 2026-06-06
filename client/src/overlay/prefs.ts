@@ -74,12 +74,17 @@ export function prefsToCssVars(p: OverlayPrefs): Record<string, string> {
   const fontStack = FONTS.find((f) => f.id === p.font)?.stack ?? FONTS[0].stack;
   const bg = themeBgRgb(p.theme);
   const text = "245, 245, 247";
+  // Scale the backdrop blur with opacity so the slider is actually visible:
+  // a heavy fixed blur makes the panel look solid regardless of alpha. At low
+  // opacity → little blur (truly see-through); at full → frosted glass.
+  const blur = Math.round(p.opacity * 18);
   return {
     "--bubble-font-size": `${p.fontSize}px`,
     "--ov-font": fontStack,
     "--ov-accent": p.accent,
     "--ov-bg": bg,
     "--ov-opacity": String(p.opacity),
+    "--ov-blur": `${blur}px`,
     "--ov-text": text,
   };
 }
