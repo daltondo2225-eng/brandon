@@ -15,19 +15,33 @@ const SUPPORTED_EXTENSIONS = ".pdf,.docx,.txt,.md";
 // Panes in the unified shell: chat (home), interviews, calendar, modes editor.
 type View = "chat" | "home" | "calendar" | "modes";
 
-type Theme = "light" | "dark";
-function applyTheme(theme: Theme): void {
-  document.documentElement.setAttribute("data-theme", theme);
+// User preference: explicit light/dark, or follow the OS ("system").
+type Theme = "light" | "dark" | "system";
+function systemIsDark(): boolean {
+  try { return window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { return false; }
 }
-function useTheme(): [Theme, () => void] {
+function applyTheme(theme: Theme): void {
+  const effective = theme === "system" ? (systemIsDark() ? "dark" : "light") : theme;
+  document.documentElement.setAttribute("data-theme", effective);
+}
+function useTheme(): [Theme, (t: Theme) => void, () => void] {
   const [theme, setTheme] = useState<Theme>(() => {
-    try { return (localStorage.getItem(THEME_KEY) as Theme) || "light"; } catch { return "light"; }
+    try { return (localStorage.getItem(THEME_KEY) as Theme) || "system"; } catch { return "system"; }
   });
   useEffect(() => {
     applyTheme(theme);
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
+    // Re-apply when the OS theme changes while on "system".
+    if (theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme("system");
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, [theme]);
-  return [theme, () => setTheme((t) => (t === "light" ? "dark" : "light"))];
+  // setTheme(value) for explicit choice; toggle() flips light<->dark for the
+  // sidebar sun/moon button.
+  const toggle = () => setTheme((t) => ((t === "dark" || (t === "system" && systemIsDark())) ? "light" : "dark"));
+  return [theme, setTheme, toggle];
 }
 
 function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogout: () => void }) {
@@ -42,7 +56,7 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [error, setError] = useState<string>("");
-  const [theme, toggleTheme] = useTheme();
+  const [theme, setTheme, toggleTheme] = useTheme();
 
   // Detectable = visible in screen capture. On this Win11 GPU combo,
   // setContentProtection(true) makes the overlay invisible to the user too —
@@ -184,7 +198,7 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
   ) : null;
 
   const settingsModal = settingsOpen ? (
-    <SettingsModal onClose={() => setSettingsOpen(false)} currentUser={currentUser} theme={theme} onToggleTheme={toggleTheme} />
+    <SettingsModal onClose={() => setSettingsOpen(false)} currentUser={currentUser} theme={theme} onSetTheme={setTheme} detectable={detectable} onToggleDetectable={() => setDetectable((v) => !v)} />
   ) : null;
 
   const adminModal = adminOpen ? (
@@ -597,7 +611,7 @@ function StartInterviewModal({
   );
 }
 
-function SettingsModal({ onClose, currentUser, theme, onToggleTheme }: { onClose: () => void; currentUser: api.AuthUser; theme: Theme; onToggleTheme: () => void }) {
+function SettingsModal({ onClose, currentUser, theme, onSetTheme, detectable, onToggleDetectable }: { onClose: () => void; currentUser: api.AuthUser; theme: Theme; onSetTheme: (t: Theme) => void; detectable: boolean; onToggleDetectable: () => void }) {
   const isAdmin = currentUser.role === "superadmin";
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -607,18 +621,31 @@ function SettingsModal({ onClose, currentUser, theme, onToggleTheme }: { onClose
           <button className="icon" onClick={onClose} title="Close">{closeIcon}</button>
         </div>
         <div className="modal-body">
-          {/* Appearance: app theme (the overlay has its own theme in its gear menu). */}
+          {/* App theme — controls THIS (main) window. The overlay keeps its own
+              theme in its gear menu, since it must stay a dark glass. */}
           <div className="field">
-            <label>Appearance</label>
+            <label>Theme</label>
             <div className="theme-choice">
-              <button className={theme === "light" ? "active" : ""} onClick={() => { if (theme !== "light") onToggleTheme(); }}>
-                {sunIcon}<span>Light</span>
-              </button>
-              <button className={theme === "dark" ? "active" : ""} onClick={() => { if (theme !== "dark") onToggleTheme(); }}>
-                {moonIcon}<span>Dark</span>
+              <button className={theme === "light" ? "active" : ""} onClick={() => onSetTheme("light")}>{sunIcon}<span>Light</span></button>
+              <button className={theme === "dark" ? "active" : ""} onClick={() => onSetTheme("dark")}>{moonIcon}<span>Dark</span></button>
+              <button className={theme === "system" ? "active" : ""} onClick={() => onSetTheme("system")}>{systemIcon}<span>System</span></button>
+            </div>
+          </div>
+
+          {/* Overlay screen-share visibility. Off = hidden from capture. */}
+          <div className="field">
+            <label>Interview overlay</label>
+            <div className="setting-row">
+              <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
+                {detectable ? "Visible in screen-share" : "Hidden from screen-share (recommended)"}
+              </span>
+              <button className={`toggle danger ${detectable ? "on" : ""}`} onClick={onToggleDetectable}>
+                <span className="track"><span className="thumb" /></span>
+                <span className="label">{detectable ? "Detectable" : "Undetectable"}</span>
               </button>
             </div>
           </div>
+
           {/* API keys: admins edit them; everyone else sees model availability. */}
           {isAdmin ? <AdminKeysSection /> : <ModelStatusSection />}
           <MyUsageSection />
@@ -1400,6 +1427,7 @@ const gearIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><c
 const chatIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3.5h11v7h-7l-4 3v-3h0v-7z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>);
 const moonIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 9.5A5.5 5.5 0 016.5 3a5.5 5.5 0 102 10.5 5.52 5.52 0 004.5-4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>);
 const sunIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M13 3l-1 1M4 12l-1 1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);
+const systemIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="8" rx="1.3" stroke="currentColor" strokeWidth="1.3"/><path d="M6 13.5h4M8 11v2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);
 const sendIconUp = (<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 13V3M4 7l4-4 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 
 /* ───────────────────────── Auth gate ──────────────────────────────────── */
@@ -2013,25 +2041,11 @@ function ChatShell({
       </aside>
 
       <main className="chat-main chat-thread">
-        {/* Top bar: pane title + "Go to overlay" (always available). */}
-        <div className="pane-topbar">
-          <span className="pane-title">
-            {pane === "chat" ? "Chat" : pane === "home" ? "My interviews" : pane === "calendar" ? "My calendar" : pane === "modes" ? "Modes & files" : ""}
-          </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button
-              className={`toggle danger ${detectable ? "on" : ""}`}
-              onClick={onToggleDetectable}
-              title={detectable ? "Overlay is visible in screen-share" : "Overlay is hidden from screen-share (recommended)"}
-            >
-              <span className="track"><span className="thumb" /></span>
-              <span className="label">{detectable ? "Detectable" : "Undetectable"}</span>
-            </button>
-            <button className="overlay-btn" onClick={onShrinkToOverlay} title="Shrink to the live interview overlay">
-              Go to overlay →
-            </button>
-          </div>
-        </div>
+        {/* No full top bar — just a floating "Go to overlay" affordance, top-right.
+            Title is implicit; Undetectable lives in Settings now. */}
+        <button className="overlay-btn floating" onClick={onShrinkToOverlay} title="Shrink to the live interview overlay">
+          Go to overlay →
+        </button>
 
         {pane === "chat" && (<>
           {messages.length === 0 ? (

@@ -1069,6 +1069,10 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 999px;
   color: rgba(255,255,255,0.92);
+  /* Sit above the overlay card so the gear popover (which drops below the pill,
+     overlapping the card) isn't painted behind it. */
+  position: relative;
+  z-index: 20;
 }
 .overlay-toppill .brand-mark {
   width: 22px; height: 22px; border-radius: 6px;
@@ -2260,3 +2264,20 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .theme-choice button:hover { background: var(--bg-hover); color: var(--text); }
 .theme-choice button.active { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* ---- Minimal overlay affordance (no top bar) + Settings rows ---- */
+.chat-main { position: relative; }
+.overlay-btn.floating {
+  position: absolute; top: 12px; right: 16px; z-index: 6;
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--text); color: var(--bg); border: none;
+  font-size: 13px; font-weight: 550; cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+.overlay-btn.floating:hover { opacity: 0.9; }
+/* Keep the chat thread clear of the floating button at the top. */
+.chat-main .chat-scroll, .chat-main .pane-scroll, .chat-main .chat-empty { padding-top: 8px; }
+
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.theme-choice { display: flex; gap: 8px; }
+.theme-choice button { flex: 1; }
