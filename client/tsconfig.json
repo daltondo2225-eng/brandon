@@ -13,6 +13,7 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "react", "react-dom"],
     "paths": {
       "@brandon/shared": ["../shared/src/types.ts"]
     }
