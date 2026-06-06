@@ -2336,3 +2336,47 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .overlay-footer { gap: 8px; }
 /* Top pill: a hair more compact */
 .overlay-toppill { padding: 5px 9px; gap: 5px; }
+
+/* ============================================================================
+   Overlay input: single compact row (attach · textarea · clear · send).
+   Replaces the old textarea-with-actions-bar-below layout to cut height.
+   ========================================================================== */
+.note-card {
+  min-height: 0 !important; max-height: none;
+  flex-direction: column; gap: 0;
+  padding: 4px 6px;
+}
+.note-row {
+  -webkit-app-region: no-drag;
+  display: flex; align-items: center; gap: 6px;
+}
+.note-card .note-input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 5px 6px; resize: none;
+  max-height: 84px;
+  line-height: 1.4;
+}
+/* Buttons inline in the row (override the old .note-actions-scoped styles). */
+.note-row .attach-btn {
+  -webkit-app-region: no-drag; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 7px;
+  background: transparent; color: var(--ov-text-dim, rgba(255,255,255,0.6));
+  border: none; cursor: pointer;
+}
+.note-row .attach-btn:hover { background: rgba(var(--ov-line, 255,255,255), 0.08); }
+.note-row .clear-mark {
+  -webkit-app-region: no-drag; flex: 0 0 auto;
+  font-size: 11px; padding: 4px 9px; border-radius: 999px;
+  background: transparent; color: var(--ov-text-dim, rgba(255,255,255,0.55));
+  border: 1px solid rgba(var(--ov-line, 255,255,255), 0.14); cursor: pointer;
+}
+.note-row .clear-mark:disabled { opacity: 0.4; cursor: not-allowed; }
+.note-row .send-btn {
+  -webkit-app-region: no-drag; flex: 0 0 auto;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent, #1E7EF0); color: #fff; border: none;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.note-row .send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.note-card .attachment-row { padding: 2px 2px 4px; }

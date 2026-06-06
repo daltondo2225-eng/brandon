@@ -625,26 +625,8 @@ export function OverlayApp() {
                   ))}
                 </div>
               )}
-              <textarea
-                className="note-input"
-                ref={noteInputRef}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Ask Brandon — paste a question or attach a screenshot. Enter to send."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    trigger();
-                  }
-                }}
-              />
-              <div className="note-actions">
-                <button
-                  className="clear-mark"
-                  onClick={() => { setMarkPos(null); setNote(""); setPendingImages([]); }}
-                  disabled={markPos === null && !note && pendingImages.length === 0}
-                  title="Clear mark, note, and attachments"
-                >Clear</button>
+              {/* Single compact row: attach · input · clear · send. */}
+              <div className="note-row">
                 <label className="attach-btn" title="Attach image (or paste with Ctrl+V)">
                   {paperclipIcon}
                   <input
@@ -655,7 +637,26 @@ export function OverlayApp() {
                     onChange={(e) => { attachFromFileDialog(e.target.files); e.target.value = ""; }}
                   />
                 </label>
-                <div className="actions-spacer" />
+                <textarea
+                  className="note-input"
+                  ref={noteInputRef}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Ask Brandon — paste a question or attach a screenshot. Enter to send."
+                  rows={1}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      trigger();
+                    }
+                  }}
+                />
+                <button
+                  className="clear-mark"
+                  onClick={() => { setMarkPos(null); setNote(""); setPendingImages([]); }}
+                  disabled={markPos === null && !note && pendingImages.length === 0}
+                  title="Clear mark, note, and attachments"
+                >Clear</button>
                 <button
                   className="send-btn"
                   onClick={trigger}
