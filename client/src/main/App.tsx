@@ -1377,7 +1377,8 @@ const docIcon = (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><pa
 const templateIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.4" fill="currentColor"/><circle cx="12" cy="4" r="1.4" fill="currentColor"/><circle cx="4" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>);
 const fileIcon = (<svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M9.5 2.5V6H13" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>);
 const trashIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6 4.5V3a1 1 0 011-1h2a1 1 0 011 1v1.5M4.5 4.5l.6 8.6a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const pencilIcon = (<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const pencilIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const copyIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="8" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3 11V3a1 1 0 011-1h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);
 const paperclipIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 7l-4.7 4.7a2 2 0 01-2.8-2.8L8.7 4.2a3 3 0 014.2 4.2L8 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const playIcon = (<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>);
 const refreshIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 11-1.5-3.5L13 3v4h-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>);
@@ -1858,6 +1859,17 @@ function ChatShell({
     await runSend(convId!, text, imgs);
   }, [input, images, streaming, openId, pickMode, runSend]);
 
+  // Copy a message to the clipboard, with a brief "copied" tick on that row.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyMsg = useCallback((id: string, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopiedId(null), 1400);
+    }).catch(() => { /* clipboard unavailable */ });
+  }, []);
+
   // Edit a previously-sent user message: truncate it + everything after on the
   // server, then re-send the edited text (ChatGPT-style replace + regenerate).
   const [editingMsg, setEditingMsg] = useState<string | null>(null);
@@ -2039,13 +2051,23 @@ function ChatShell({
                         </div>
                       </div>
                     ) : (
-                      <div className="chat-bubble">
-                        {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
-                        {m.role === "user" && !streaming && (
-                          <button
-                            className="chat-edit-btn" title="Edit message"
-                            onClick={() => { setEditingMsg(m.id); setEditText(m.content); }}
-                          >{pencilIcon}</button>
+                      <div className="chat-msg-body">
+                        <div className="chat-bubble">
+                          {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
+                        </div>
+                        {m.content && (
+                          <div className="chat-msg-actions">
+                            <button className="msg-action" title={copiedId === m.id ? "Copied" : "Copy"}
+                              onClick={() => copyMsg(m.id, m.content)}>
+                              {copiedId === m.id ? checkIcon : copyIcon}
+                            </button>
+                            {m.role === "user" && !streaming && (
+                              <button className="msg-action" title="Edit message"
+                                onClick={() => { setEditingMsg(m.id); setEditText(m.content); }}>
+                                {pencilIcon}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

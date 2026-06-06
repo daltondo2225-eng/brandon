@@ -2005,17 +2005,24 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .auth-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .auth-card .primary { padding: 11px; border-radius: 10px; font-weight: 600; font-size: 14px; }
 
-/* ---- Editable user messages (ChatGPT-style) ---- */
-.chat-msg.user .chat-bubble { position: relative; }
-.chat-edit-btn {
-  position: absolute; left: -30px; top: 50%; transform: translateY(-50%);
-  width: 24px; height: 24px; border-radius: 6px;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; border: none; color: var(--text-dim);
-  opacity: 0; transition: opacity 90ms ease, background 90ms ease;
+/* ---- Message action row (copy / edit), ChatGPT-style under the bubble ---- */
+.chat-msg-body { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.chat-msg.user .chat-msg-body { align-items: flex-end; }
+.chat-msg.assistant .chat-msg-body { align-items: flex-start; }
+.chat-msg-actions {
+  display: flex; gap: 2px; padding: 0 2px;
+  opacity: 0; transition: opacity 120ms ease;
 }
-.chat-msg.user:hover .chat-edit-btn { opacity: 1; }
-.chat-edit-btn:hover { background: var(--bg-hover); color: var(--text); }
+/* Show on hover of the message; keep visible while focused for accessibility. */
+.chat-msg:hover .chat-msg-actions,
+.chat-msg-actions:focus-within { opacity: 1; }
+.msg-action {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 7px;
+  background: transparent; border: none; color: var(--text-dim); cursor: pointer;
+  transition: background 90ms ease, color 90ms ease;
+}
+.msg-action:hover { background: var(--bg-hover); color: var(--text); }
 
 .chat-edit {
   width: 100%; max-width: 88%; margin-left: auto;
