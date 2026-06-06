@@ -1775,6 +1775,11 @@ function ChatShell({
   // The mode the NEXT new chat will use: a profile id, PLAIN, or "" = active mode.
   const [pickMode, setPickMode] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Whether the user is pinned to the bottom (so streaming auto-scrolls) vs.
+  // scrolled up to read (so we DON'T yank them back down).
+  const atBottomRef = useRef(true);
+  const rafRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const loadConvos = useCallback(async () => {
@@ -1847,10 +1852,31 @@ function ChatShell({
     return () => window.removeEventListener("paste", onPaste);
   }, []);
 
+  // Auto-scroll while streaming — but only if the user is already at the bottom,
+  // and batched via rAF so we don't fight the browser's paint (that thrash made
+  // streaming look janky). If they scroll up to read, we leave them be.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!atBottomRef.current) return;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [messages, streaming]);
+
+  // Track whether we're near the bottom so streaming respects manual scroll-up.
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+
+  // Keep the composer focused whenever the chat pane is active (so typing is
+  // always ready and focus doesn't drift to message buttons).
+  useEffect(() => {
+    if (pane === "chat") composerRef.current?.focus();
+  }, [pane, openId]);
 
   // Reload messages from the server (to pick up real ids after a turn so edit
   // can target a persisted message).
@@ -1863,6 +1889,8 @@ function ChatShell({
 
   // Core send: stream a reply for `text` (+ images) in conversation `convId`.
   const runSend = useCallback(async (convId: string, text: string, imgs: { mediaType: string; data: string }[]) => {
+    atBottomRef.current = true;            // a new turn pins us to the bottom
+    composerRef.current?.focus();          // keep the cursor in the composer
     setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: text || "📷 image" }, { id: `a-${Date.now()}`, role: "assistant", content: "" }]);
     setStreaming(true);
     const controller = new AbortController();
@@ -1874,7 +1902,7 @@ function ChatShell({
           acc += t;
           setMessages((m) => { const copy = [...m]; copy[copy.length - 1] = { ...copy[copy.length - 1], content: acc }; return copy; });
         },
-        onDone: () => { setStreaming(false); loadConvos(); reloadMessages(convId); },
+        onDone: () => { setStreaming(false); loadConvos(); reloadMessages(convId); composerRef.current?.focus(); },
         onError: (msg) => { setErr(msg); setStreaming(false); },
       }, controller.signal);
     } catch (e) {
@@ -2055,7 +2083,7 @@ function ChatShell({
               <p>Ask anything, or start a live interview from the sidebar.</p>
             </div>
           ) : (
-            <div className="chat-scroll" ref={scrollRef}>
+            <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
               <div className="chat-inner">
                 {messages.map((m) => (
                   <div key={m.id} className={`chat-msg ${m.role}`}>
@@ -2123,6 +2151,7 @@ function ChatShell({
                 </select>
               )}
               <textarea
+                ref={composerRef}
                 value={input}
                 placeholder="Ask anything"
                 onChange={(e) => setInput(e.target.value)}

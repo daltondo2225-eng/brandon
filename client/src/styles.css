@@ -2380,3 +2380,14 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .note-row .send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .note-card .attachment-row { padding: 2px 2px 4px; }
+
+/* ---- Message action icons: make them clearly visible ---- */
+.chat-msg-actions { opacity: 0.55; }              /* faintly visible at rest... */
+.chat-msg:hover .chat-msg-actions,
+.chat-msg-actions:focus-within { opacity: 1; }     /* ...full on hover */
+.msg-action {
+  color: var(--text-dim);
+  width: 30px; height: 30px;
+}
+.msg-action svg { width: 16px; height: 16px; }     /* a bit larger */
+.msg-action:hover { background: var(--bg-hover); color: var(--text); }
