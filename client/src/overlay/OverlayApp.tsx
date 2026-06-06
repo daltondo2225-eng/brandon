@@ -590,10 +590,6 @@ export function OverlayApp() {
         <button className="end-btn" onClick={endInterview} title="End this interview and close the overlay">
           <span>End</span>
         </button>
-        <button
-          className={captionsStatus === "running" ? "mic recording" : "mic"}
-          title={captionsStatus === "running" ? "Live Captions: active" : captionsHint || "Press Win+Ctrl+L to start Live Captions"}
-        >{micIcon}</button>
       </div>
 
       {!collapsed && (
@@ -754,7 +750,7 @@ export function OverlayApp() {
           </div>
 
           <div className="overlay-footer">
-            <span>
+            <span title={captionsHint || undefined}>
               {captionsStatus === "running" && <><span className="live-dot" />live</>}
               {captionsStatus === "not-running" && "captions: off"}
               {captionsStatus === "missing" && "sidecar missing"}
@@ -835,7 +831,6 @@ function formatTime(d: Date): string {
 
 const chevronDown = (<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const chevronUp = (<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M3 7l3-3 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>);
-const micIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="6" y="2" width="4" height="8" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M3.5 8a4.5 4.5 0 009 0M8 12.5V14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>);
 const sendIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l10-5-3 5 3 5-10-5z" fill="currentColor"/></svg>);
 const paperclipIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 7l-4.7 4.7a2 2 0 01-2.8-2.8L8.7 4.2a3 3 0 014.2 4.2L8 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const stopIcon = (<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/></svg>);
