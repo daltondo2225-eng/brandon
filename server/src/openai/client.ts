@@ -13,8 +13,9 @@ function client(): OpenAI {
       "The server is missing its OpenAI API key — please contact the administrator.",
     );
   }
+  // maxRetries: SDK retries 429 + 5xx with backoff+jitter (Retry-After honored).
   if (!_client || _clientKey !== key) {
-    _client = new OpenAI({ apiKey: key });
+    _client = new OpenAI({ apiKey: key, maxRetries: 4 });
     _clientKey = key;
   }
   return _client;

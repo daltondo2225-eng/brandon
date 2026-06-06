@@ -17,8 +17,12 @@ function client(): Anthropic {
     );
   }
   // Rebuild client if the key changed (user updated it via Settings).
+  // maxRetries: the SDK retries 429 (rate limit) + 5xx with exponential backoff
+  // + jitter, honoring Retry-After — covers both streaming and one-shot calls,
+  // so a brief burst past the per-key limit becomes a short pause, not a failed
+  // interview answer.
   if (!_client || _clientKey !== key) {
-    _client = new Anthropic({ apiKey: key });
+    _client = new Anthropic({ apiKey: key, maxRetries: 4 });
     _clientKey = key;
   }
   return _client;
@@ -265,7 +269,7 @@ export async function streamCompletion(input: StreamInput): Promise<void> {
   // Keeps the fast path identical to the original implementation; only
   // requests that explicitly opt into code tools take the agentic loop.
   if (!repoRoot) {
-    const stream = await client().messages.stream(
+    const stream = client().messages.stream(
       {
         model: input.profile.model,
         max_tokens: 1024,
@@ -296,7 +300,7 @@ export async function streamCompletion(input: StreamInput): Promise<void> {
 
   while (iter < MAX_ITERATIONS) {
     iter++;
-    const stream = await client().messages.stream(
+    const stream = client().messages.stream(
       {
         model: input.profile.model,
         max_tokens: 2048,
