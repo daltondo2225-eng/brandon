@@ -1,42 +1,28 @@
 // Overlay appearance preferences — persisted to localStorage, tuned live from
-// the in-overlay gear popover. Curated presets keep it readable + discreet.
+// the in-overlay gear popover. Kept deliberately minimal: just Theme + Opacity.
 import { useCallback, useEffect, useState } from "react";
 
-// "light" intentionally omitted for now: the overlay's text/chrome colors are
-// tuned for a dark glass; a light theme needs a full text-color sweep first.
-export type OverlayTheme = "dark" | "black";
-export type OverlayFont = "sans" | "serif" | "mono";
+// dark = the current dark glass; light = white background, black text.
+export type OverlayTheme = "dark" | "light";
 
 export interface OverlayPrefs {
-  fontSize: number;     // px, 12–32
-  font: OverlayFont;
+  fontSize: number;   // px, 12–32 (still adjustable via the A−/A+ buttons)
   theme: OverlayTheme;
-  accent: string;       // hex, from ACCENTS
-  opacity: number;      // 0.30–1.00 — the overlay card/background alpha ("capacity")
+  opacity: number;    // 0.30–1.00 — overlay background alpha ("capacity")
 }
-
-export const FONTS: { id: OverlayFont; label: string; stack: string }[] = [
-  { id: "sans", label: "Sans", stack: '"Inter", -apple-system, "Segoe UI", Roboto, sans-serif' },
-  { id: "serif", label: "Serif", stack: 'Georgia, "Times New Roman", serif' },
-  { id: "mono", label: "Mono", stack: '"SF Mono", "Cascadia Code", "Consolas", monospace' },
-];
 
 export const THEMES: { id: OverlayTheme; label: string }[] = [
   { id: "dark", label: "Dark" },
-  { id: "black", label: "Black" },
+  { id: "light", label: "Light" },
 ];
 
-export const ACCENTS = ["#1E7EF0", "#22C55E", "#A855F7", "#F59E0B", "#EC4899"];
-
-const DEFAULTS: OverlayPrefs = {
-  fontSize: 18,
-  font: "sans",
-  theme: "dark",
-  accent: ACCENTS[0],
-  opacity: 0.82,
-};
+const DEFAULTS: OverlayPrefs = { fontSize: 18, theme: "dark", opacity: 0.82 };
 
 const KEY = "brandon.overlayPrefs";
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
 
 function load(): OverlayPrefs {
   try {
@@ -45,14 +31,11 @@ function load(): OverlayPrefs {
       const p = JSON.parse(raw) as Partial<OverlayPrefs>;
       return {
         fontSize: clamp(Number(p.fontSize) || DEFAULTS.fontSize, 12, 32),
-        font: FONTS.some((f) => f.id === p.font) ? p.font! : DEFAULTS.font,
         theme: THEMES.some((t) => t.id === p.theme) ? p.theme! : DEFAULTS.theme,
-        accent: typeof p.accent === "string" ? p.accent : DEFAULTS.accent,
         opacity: clamp(Number(p.opacity) || DEFAULTS.opacity, 0.3, 1),
       };
     }
   } catch { /* localStorage may be unavailable / corrupt */ }
-  // Migrate the old standalone font-size key if present.
   try {
     const v = parseInt(localStorage.getItem("brandon.overlayFontSize") || "", 10);
     if (Number.isFinite(v)) return { ...DEFAULTS, fontSize: clamp(v, 12, 32) };
@@ -60,32 +43,24 @@ function load(): OverlayPrefs {
   return { ...DEFAULTS };
 }
 
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-/** Theme → background RGB the opacity is applied to. */
-function themeBgRgb(theme: OverlayTheme): string {
-  return theme === "black" ? "8, 8, 10" : "26, 26, 30";
-}
-
 /** CSS custom properties to spread onto the overlay card's style. */
 export function prefsToCssVars(p: OverlayPrefs): Record<string, string> {
-  const fontStack = FONTS.find((f) => f.id === p.font)?.stack ?? FONTS[0].stack;
-  const bg = themeBgRgb(p.theme);
-  const text = "245, 245, 247";
-  // Scale the backdrop blur with opacity so the slider is actually visible:
-  // a heavy fixed blur makes the panel look solid regardless of alpha. At low
-  // opacity → little blur (truly see-through); at full → frosted glass.
+  const light = p.theme === "light";
+  // Background RGB the opacity is applied to, and matching text/chrome colors.
+  const bg = light ? "255, 255, 255" : "26, 26, 30";
+  const text = light ? "17, 17, 19" : "245, 245, 247";
+  const textDim = light ? "90, 90, 96" : "180, 180, 188";
+  const line = light ? "0, 0, 0" : "255, 255, 255";   // border base (low alpha applied in CSS)
+  // Scale blur with opacity so the slider is actually visible.
   const blur = Math.round(p.opacity * 18);
   return {
     "--bubble-font-size": `${p.fontSize}px`,
-    "--ov-font": fontStack,
-    "--ov-accent": p.accent,
     "--ov-bg": bg,
     "--ov-opacity": String(p.opacity),
     "--ov-blur": `${blur}px`,
     "--ov-text": text,
+    "--ov-text-dim": textDim,
+    "--ov-line": line,
   };
 }
 

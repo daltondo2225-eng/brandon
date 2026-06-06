@@ -5,7 +5,7 @@ import { bridge } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
 import { fileToImage, imagesFromClipboard } from "../lib/image";
 import { BrandonMark } from "../lib/BrandonMark";
-import { useOverlayPrefs, prefsToCssVars, FONTS, THEMES, ACCENTS } from "./prefs";
+import { useOverlayPrefs, prefsToCssVars, THEMES } from "./prefs";
 
 interface ParsedResponse {
   bullets: string[];
@@ -97,7 +97,7 @@ export function OverlayApp() {
   const [toolCalls, setToolCalls] = useState<Array<{ summary: string; ok: boolean }>>([]);
   // Overlay appearance prefs (font/size/theme/accent/opacity) — persisted +
   // tuned live from the gear popover. fontSize kept as a derived shortcut.
-  const { prefs, update: updatePrefs, reset: resetPrefs } = useOverlayPrefs();
+  const { prefs, update: updatePrefs } = useOverlayPrefs();
   const fontSize = prefs.fontSize;
   const bumpFontSize = (delta: number) =>
     updatePrefs({ fontSize: Math.max(12, Math.min(32, prefs.fontSize + delta)) });
@@ -555,23 +555,6 @@ export function OverlayApp() {
           {settingsOpen && (
             <div className="ov-settings">
               <div className="ov-row">
-                <span className="ov-label">Text size</span>
-                <div className="ov-size">
-                  <button onClick={() => bumpFontSize(-2)} disabled={fontSize <= 12}>A−</button>
-                  <span>{fontSize}</span>
-                  <button onClick={() => bumpFontSize(+2)} disabled={fontSize >= 32}>A+</button>
-                </div>
-              </div>
-              <div className="ov-row">
-                <span className="ov-label">Font</span>
-                <div className="ov-seg">
-                  {FONTS.map((f) => (
-                    <button key={f.id} className={prefs.font === f.id ? "active" : ""}
-                      onClick={() => updatePrefs({ font: f.id })}>{f.label}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="ov-row">
                 <span className="ov-label">Theme</span>
                 <div className="ov-seg">
                   {THEMES.map((t) => (
@@ -581,22 +564,11 @@ export function OverlayApp() {
                 </div>
               </div>
               <div className="ov-row">
-                <span className="ov-label">Accent</span>
-                <div className="ov-swatches">
-                  {ACCENTS.map((c) => (
-                    <button key={c} className={`ov-swatch${prefs.accent === c ? " active" : ""}`}
-                      style={{ background: c }} onClick={() => updatePrefs({ accent: c })}
-                      title={c} aria-label={`accent ${c}`} />
-                  ))}
-                </div>
-              </div>
-              <div className="ov-row">
                 <span className="ov-label">Opacity</span>
                 <input type="range" min={30} max={100} value={Math.round(prefs.opacity * 100)}
                   onChange={(e) => updatePrefs({ opacity: Number(e.target.value) / 100 })} />
                 <span className="ov-val">{Math.round(prefs.opacity * 100)}%</span>
               </div>
-              <button className="ov-reset" onClick={resetPrefs}>Reset to defaults</button>
             </div>
           )}
         </div>
@@ -606,7 +578,7 @@ export function OverlayApp() {
       </div>
 
       {!collapsed && (
-        <div className="overlay-card" style={prefsToCssVars(prefs) as Record<string, string>}>
+        <div className={`overlay-card${prefs.theme === "light" ? " light" : ""}`} style={prefsToCssVars(prefs) as Record<string, string>}>
           {/* Top bar: live captions on the left, input note-card on the right,
               equal halves, compact height. The answer stream rolls underneath. */}
           <div className="top-bar">

@@ -2283,3 +2283,36 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
 .theme-choice { display: flex; gap: 8px; }
 .theme-choice button { flex: 1; }
+
+/* ============================================================================
+   Overlay LIGHT theme — white background, black text. Flips the colors that
+   are hardcoded light-on-dark for the default dark glass. Scoped to
+   .overlay-card.light so the dark theme is untouched.
+   ========================================================================== */
+.overlay-card.light { color: rgb(17,17,19); }
+.overlay-card.light .captions-view,
+.overlay-card.light .note-card,
+.overlay-card.light .input-area {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.12);
+  color: rgb(17,17,19);
+}
+.overlay-card.light .note-card .note-input { color: rgb(17,17,19); }
+.overlay-card.light .note-card .note-input::placeholder,
+.overlay-card.light .captions-view .placeholder,
+.overlay-card.light .response-area .placeholder,
+.overlay-card.light .input-area .placeholder { color: rgba(0,0,0,0.42); }
+.overlay-card.light .captions-view .tok:hover,
+.overlay-card.light .input-area .tok:hover { background: rgba(0,0,0,0.07); }
+.overlay-card.light .response-area .bubble.assistant { color: rgb(17,17,19); }
+.overlay-card.light .response-area .bubble.user {
+  background: rgba(30,126,240,0.12);
+  border-color: rgba(30,126,240,0.30);
+  color: rgb(17,17,19);
+}
+.overlay-card.light .overlay-footer { color: rgba(0,0,0,0.55); }
+.overlay-card.light .overlay-footer .identity strong { color: rgb(17,17,19); }
+.overlay-card.light .md code:not(pre code) { background: rgba(0,0,0,0.06); color: rgb(30,30,34); }
+.overlay-card.light .turn:not(:last-child) { border-bottom-color: rgba(0,0,0,0.08); }
+/* Scrollbars on the light card */
+.overlay-card.light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.22); }
