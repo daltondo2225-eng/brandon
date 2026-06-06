@@ -1395,14 +1395,16 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 /* Captions viewer — read-only tail of the cumulative transcript. */
 /* Top bar: captions (left half) and input note-card (right half), equal
    widths, compact height. The response-area below scrolls independently. */
+/* Stack vertically: live captions on top, the input bar directly under it. */
 .top-bar {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   flex: 0 0 auto;
 }
 .top-bar > .captions-view,
 .top-bar > .note-card {
-  flex: 1 1 0;
+  width: 100%;
   min-width: 0;
   min-height: 0;
 }

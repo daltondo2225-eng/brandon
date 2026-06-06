@@ -579,8 +579,8 @@ export function OverlayApp() {
 
       {!collapsed && (
         <div className={`overlay-card${prefs.theme === "light" ? " light" : ""}`} style={prefsToCssVars(prefs) as Record<string, string>}>
-          {/* Top bar: live captions on the left, input note-card on the right,
-              equal halves, compact height. The answer stream rolls underneath. */}
+          {/* Live captions on top, the input note-card directly under it.
+              The answer stream rolls underneath both. */}
           <div className="top-bar">
             <div className="captions-view" ref={captionsViewRef}>
               {transcript.trim().length === 0 ? (
