@@ -345,6 +345,59 @@ export function OverlayApp() {
     }
   }, [activeProfile, refreshProfile]);
 
+  // Edit a prior turn's question and regenerate from there (ChatGPT-style):
+  // drop that turn + everything after it, then re-ask with the edited text as
+  // the userIntent. Prior turns before the edited one stay as context.
+  const editTurn = useCallback(async (index: number, newText: string) => {
+    const text = newText.trim();
+    if (!text || streaming) return;
+    const profile = activeProfile ?? (await refreshProfile());
+    if (!profile) { setError("No active profile. Open Brandon and set a mode as Active."); return; }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setError("");
+    setResponse({ bullets: [], script: "", raw: "" });
+    setToolCalls([]);
+    setStreaming(true);
+
+    // History before the edited turn becomes the context; the edited turn and
+    // everything after it are discarded.
+    const priorTurns: ChatTurn[] = turnsRef.current.slice(0, index).map((t) => ({ user: t.user, assistant: t.assistant }));
+    setTurns((prev) => prev.slice(0, index));
+    setLastQuestion(text);
+
+    let raw = "";
+    try {
+      await api.streamChat(
+        {
+          profileId: profile.id,
+          transcriptWindow: transcriptRef.current,
+          userIntent: text,
+          priorTurns,
+        },
+        {
+          onText: (t) => { raw += t; setResponse(parseResponse(raw)); },
+          onTool: (evt) => setToolCalls((prev) => [...prev, { summary: evt.summary, ok: evt.ok }]),
+          onDone: () => {
+            setStreaming(false);
+            if (raw.trim()) setTurns((prev) => [...prev, { label: text, user: text, assistant: raw }]);
+          },
+          onError: (msg) => { setError(msg); setStreaming(false); },
+        },
+        controller.signal,
+      );
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") setError((err as Error).message);
+      setStreaming(false);
+    }
+  }, [activeProfile, refreshProfile, streaming]);
+
+  // Inline edit state for a prior turn's question.
+  const [editingTurn, setEditingTurn] = useState<number | null>(null);
+  const [editTurnText, setEditTurnText] = useState("");
+
   // Subscribe to "resume conversation" payloads pushed from the main window
   // (MeetingDetail → Resume button). Hydrates the conversation history into
   // state so the next chat sends them as priorTurns and the historical
@@ -593,7 +646,31 @@ export function OverlayApp() {
 
             {turns.map((t, i) => (
               <div key={i} className="turn">
-                <div className="bubble user">{truncate(t.label, 320)}</div>
+                {editingTurn === i ? (
+                  <div className="bubble-edit">
+                    <textarea
+                      autoFocus value={editTurnText}
+                      onChange={(e) => setEditTurnText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); setEditingTurn(null); editTurn(i, editTurnText); }
+                        if (e.key === "Escape") setEditingTurn(null);
+                      }}
+                      rows={Math.min(6, Math.max(1, editTurnText.split("\n").length))}
+                    />
+                    <div className="bubble-edit-actions">
+                      <button onClick={() => setEditingTurn(null)}>Cancel</button>
+                      <button className="primary" onClick={() => { setEditingTurn(null); editTurn(i, editTurnText); }} disabled={!editTurnText.trim() || streaming}>Send</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bubble user">
+                    {truncate(t.label, 320)}
+                    {!streaming && (
+                      <button className="bubble-edit-btn" title="Edit & regenerate"
+                        onClick={() => { setEditingTurn(i); setEditTurnText(t.user); }}>{pencilIconOv}</button>
+                    )}
+                  </div>
+                )}
                 <div className="bubble assistant">
                   <Markdown>{t.assistant}</Markdown>
                 </div>
@@ -714,3 +791,4 @@ const micIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><re
 const sendIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l10-5-3 5 3 5-10-5z" fill="currentColor"/></svg>);
 const paperclipIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 7l-4.7 4.7a2 2 0 01-2.8-2.8L8.7 4.2a3 3 0 014.2 4.2L8 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const stopIcon = (<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/></svg>);
+const pencilIconOv = (<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);

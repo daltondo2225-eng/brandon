@@ -69,3 +69,25 @@ export function addMessage(conversationId: string, role: "user" | "assistant", c
   ).run(id, conversationId, role, content, Date.now());
   return toMsg(asRow<MsgRow>(db.prepare("SELECT * FROM messages WHERE id = ?").get(id))!);
 }
+
+/**
+ * Delete `messageId` and every message after it in the conversation (for an
+ * edit-and-regenerate: the user rewrites a prior message, so its old reply and
+ * everything downstream are discarded). Returns the count removed, or null if
+ * the message isn't in this conversation. Scoped to the owning user via the
+ * conversation row. Deletes by created_at to also drop the assistant reply that
+ * shares no ordering key with the user message beyond time.
+ */
+export function truncateFromMessage(conversationId: string, userId: string, messageId: string): number | null {
+  const conv = asRow<ConvRow>(
+    db.prepare("SELECT * FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.id = ? AND m.conversation_id = ? AND c.user_id = ?")
+      .get(messageId, conversationId, userId),
+  );
+  if (!conv) return null;
+  const target = asRow<MsgRow>(db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId));
+  if (!target) return null;
+  const r = db.prepare(
+    "DELETE FROM messages WHERE conversation_id = ? AND created_at >= ?",
+  ).run(conversationId, target.created_at);
+  return Number(r.changes);
+}

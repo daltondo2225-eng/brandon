@@ -1377,6 +1377,7 @@ const docIcon = (<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><pa
 const templateIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.4" fill="currentColor"/><circle cx="12" cy="4" r="1.4" fill="currentColor"/><circle cx="4" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>);
 const fileIcon = (<svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M4 2.5h5.5L13 6v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1v-10a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M9.5 2.5V6H13" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>);
 const trashIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6 4.5V3a1 1 0 011-1h2a1 1 0 011 1v1.5M4.5 4.5l.6 8.6a1 1 0 001 .9h3.8a1 1 0 001-.9l.6-8.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const pencilIcon = (<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const paperclipIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 7l-4.7 4.7a2 2 0 01-2.8-2.8L8.7 4.2a3 3 0 014.2 4.2L8 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const playIcon = (<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>);
 const refreshIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 8a5 5 0 11-1.5-3.5L13 3v4h-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>);
@@ -1810,6 +1811,37 @@ function ChatShell({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, streaming]);
 
+  // Reload messages from the server (to pick up real ids after a turn so edit
+  // can target a persisted message).
+  const reloadMessages = useCallback(async (convId: string) => {
+    try {
+      const { messages: msgs } = await api.getConversation(convId);
+      setMessages(msgs.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+    } catch { /* keep optimistic state on failure */ }
+  }, []);
+
+  // Core send: stream a reply for `text` (+ images) in conversation `convId`.
+  const runSend = useCallback(async (convId: string, text: string, imgs: { mediaType: string; data: string }[]) => {
+    setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: text || "📷 image" }, { id: `a-${Date.now()}`, role: "assistant", content: "" }]);
+    setStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let acc = "";
+    try {
+      await api.streamConversationMessage(convId, text || "(see image)", { images: imgs }, {
+        onText: (t) => {
+          acc += t;
+          setMessages((m) => { const copy = [...m]; copy[copy.length - 1] = { ...copy[copy.length - 1], content: acc }; return copy; });
+        },
+        onDone: () => { setStreaming(false); loadConvos(); reloadMessages(convId); },
+        onError: (msg) => { setErr(msg); setStreaming(false); },
+      }, controller.signal);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setErr((e as Error).message);
+      setStreaming(false);
+    }
+  }, [loadConvos, reloadMessages]);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if ((!text && images.length === 0) || streaming) return;
@@ -1823,25 +1855,27 @@ function ChatShell({
     }
     const imgs = images.map((im) => ({ mediaType: im.mediaType, data: im.data }));
     setInput(""); setImages([]);
-    setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: text || "📷 image" }, { id: `a-${Date.now()}`, role: "assistant", content: "" }]);
-    setStreaming(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let acc = "";
+    await runSend(convId!, text, imgs);
+  }, [input, images, streaming, openId, pickMode, runSend]);
+
+  // Edit a previously-sent user message: truncate it + everything after on the
+  // server, then re-send the edited text (ChatGPT-style replace + regenerate).
+  const [editingMsg, setEditingMsg] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const commitEditMsg = useCallback(async (messageId: string) => {
+    const text = editText.trim();
+    setEditingMsg(null);
+    if (!text || !openId || streaming) return;
+    setErr("");
+    // Drop the edited message + everything after, locally and on the server.
+    setMessages((m) => { const i = m.findIndex((x) => x.id === messageId); return i === -1 ? m : m.slice(0, i); });
     try {
-      await api.streamConversationMessage(convId!, text || "(see image)", { images: imgs }, {
-        onText: (t) => {
-          acc += t;
-          setMessages((m) => { const copy = [...m]; copy[copy.length - 1] = { ...copy[copy.length - 1], content: acc }; return copy; });
-        },
-        onDone: () => { setStreaming(false); loadConvos(); },
-        onError: (msg) => { setErr(msg); setStreaming(false); },
-      }, controller.signal);
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") setErr((e as Error).message);
-      setStreaming(false);
-    }
-  }, [input, images, streaming, openId, pickMode, loadConvos]);
+      // Only persisted (server-id) messages can be truncated; optimistic ids
+      // (u-/a- prefixes) only exist pre-reload, in which case slicing locally is enough.
+      if (!/^[ua]-\d/.test(messageId)) await api.truncateConversationFrom(openId, messageId);
+    } catch (e) { setErr((e as Error).message); return; }
+    await runSend(openId, text, []);
+  }, [editText, openId, streaming, runSend]);
 
   const filtered = convos.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()));
   const modeLabel = pickMode === api.PLAIN_MODE ? "Plain assistant"
@@ -1988,9 +2022,33 @@ function ChatShell({
                 {messages.map((m) => (
                   <div key={m.id} className={`chat-msg ${m.role}`}>
                     {m.role === "assistant" && <BrandonMark size={26} className="chat-msg-avatar" />}
-                    <div className="chat-bubble">
-                      {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
-                    </div>
+                    {m.role === "user" && editingMsg === m.id ? (
+                      <div className="chat-edit">
+                        <textarea
+                          autoFocus value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitEditMsg(m.id); }
+                            if (e.key === "Escape") setEditingMsg(null);
+                          }}
+                          rows={Math.min(8, Math.max(1, editText.split("\n").length))}
+                        />
+                        <div className="chat-edit-actions">
+                          <button onClick={() => setEditingMsg(null)}>Cancel</button>
+                          <button className="primary" onClick={() => commitEditMsg(m.id)} disabled={!editText.trim() || streaming}>Send</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="chat-bubble">
+                        {m.role === "assistant" ? <Markdown>{m.content || "…"}</Markdown> : m.content}
+                        {m.role === "user" && !streaming && (
+                          <button
+                            className="chat-edit-btn" title="Edit message"
+                            onClick={() => { setEditingMsg(m.id); setEditText(m.content); }}
+                          >{pencilIcon}</button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

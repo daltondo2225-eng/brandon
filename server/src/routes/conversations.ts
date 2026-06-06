@@ -5,6 +5,7 @@ import { providerForModel } from "@brandon/shared";
 import {
   addMessage, createConversation, deleteConversation, getConversation,
   listConversations, listMessages, renameConversation, touchConversation,
+  truncateFromMessage,
 } from "../db/conversations.js";
 import { getActiveProfile, getProfile } from "../db/profiles.js";
 import { getUserDefaults } from "../db/users.js";
@@ -50,6 +51,18 @@ export async function registerConversationRoutes(app: FastifyInstance): Promise<
     if (!deleteConversation(req.params.id, req.user!.id)) return reply.notFound("Conversation not found");
     return reply.code(204).send();
   });
+
+  // Truncate: delete a message and everything after it (edit-and-regenerate).
+  // The client then POSTs the edited text as a fresh message.
+  app.delete<{ Params: { id: string; messageId: string } }>(
+    "/conversations/:id/messages/:messageId",
+    async (req, reply) => {
+      if (requireActive(req, reply)) return;
+      const removed = truncateFromMessage(req.params.id, req.user!.id, req.params.messageId);
+      if (removed === null) return reply.notFound("Message not found");
+      return { removed };
+    },
+  );
 
   // Rename a chat.
   const RenameBody = z.object({ title: z.string().trim().min(1).max(120) });

@@ -1991,3 +1991,63 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .auth-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .auth-card .primary { padding: 11px; border-radius: 10px; font-weight: 600; font-size: 14px; }
+
+/* ---- Editable user messages (ChatGPT-style) ---- */
+.chat-msg.user .chat-bubble { position: relative; }
+.chat-edit-btn {
+  position: absolute; left: -30px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--text-dim);
+  opacity: 0; transition: opacity 90ms ease, background 90ms ease;
+}
+.chat-msg.user:hover .chat-edit-btn { opacity: 1; }
+.chat-edit-btn:hover { background: var(--bg-hover); color: var(--text); }
+
+.chat-edit {
+  width: 100%; max-width: 88%; margin-left: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--accent);
+  border-radius: 16px; padding: 10px 12px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.chat-edit textarea {
+  width: 100%; resize: none; border: none; outline: none;
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 14.5px; line-height: 1.5;
+}
+.chat-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.chat-edit-actions button { padding: 6px 14px; border-radius: 8px; font-size: 13px; }
+.chat-edit-actions .primary { background: var(--accent); color: #fff; }
+.chat-edit-actions .primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Overlay: editable interview questions ---- */
+.response-area .bubble.user { position: relative; }
+.response-area .bubble-edit-btn {
+  position: absolute; left: -26px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: rgba(255,255,255,0.5);
+  opacity: 0; transition: opacity 90ms ease;
+}
+.response-area .bubble.user:hover .bubble-edit-btn { opacity: 1; }
+.response-area .bubble-edit-btn:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.08); }
+.response-area .bubble-edit {
+  align-self: flex-end; max-width: 88%;
+  display: flex; flex-direction: column; gap: 6px;
+  background: rgba(120, 200, 160, 0.14);
+  border: 1px solid rgba(120, 200, 160, 0.5);
+  border-radius: 14px; padding: 8px 10px; margin-bottom: 4px;
+}
+.response-area .bubble-edit textarea {
+  width: 100%; min-width: 220px; resize: none; border: none; outline: none;
+  background: transparent; color: rgba(255,255,255,0.95);
+  font: inherit; font-size: calc(var(--bubble-font-size, 18px) * 0.88); line-height: 1.4;
+}
+.response-area .bubble-edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.response-area .bubble-edit-actions button {
+  padding: 4px 12px; border-radius: 7px; font-size: 12px;
+  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9); border: none;
+}
+.response-area .bubble-edit-actions .primary { background: rgba(120, 200, 160, 0.55); }
+.response-area .bubble-edit-actions .primary:disabled { opacity: 0.5; }

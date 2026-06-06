@@ -455,6 +455,14 @@ export async function createConversation(profileId?: string | null): Promise<Con
   });
   return handle<Conversation>(res);
 }
+// Delete a message and everything after it (edit-and-regenerate). The caller
+// then re-sends the edited text as a new message.
+export async function truncateConversationFrom(conversationId: string, messageId: string): Promise<void> {
+  const res = await fetch(`${await base()}/conversations/${conversationId}/messages/${messageId}`, {
+    method: "DELETE", headers: await authHeaders(),
+  });
+  await handle<unknown>(res);
+}
 export async function renameConversation(id: string, title: string): Promise<Conversation> {
   const res = await fetch(`${await base()}/conversations/${id}`, {
     method: "PATCH", headers: await jsonHeaders(), body: JSON.stringify({ title }),
