@@ -210,7 +210,11 @@ export function OverlayApp() {
       setActiveProfile(detail);
       return detail;
     } catch (err) {
-      setError((err as Error).message);
+      // Background poll: stay SILENT on transient failures (e.g. a 401 fired
+      // before the token was stored, or a momentary network blip). Surfacing it
+      // showed a spurious "Unauthorized" in the overlay even while chat worked.
+      // Only user-initiated actions (send) report errors.
+      console.warn("overlay refreshProfile failed:", (err as Error).message);
       return null;
     }
   }, []);
