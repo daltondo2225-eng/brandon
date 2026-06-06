@@ -1895,7 +1895,9 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   display: flex; gap: 12px; align-items: flex-start;
   margin: 0 0 22px;
 }
-.chat-msg.user { flex-direction: row-reverse; }
+.chat-msg.assistant { justify-content: flex-start; }
+/* User messages: no avatar, lone bubble pushed to the right (ChatGPT-style). */
+.chat-msg.user { justify-content: flex-end; }
 .chat-msg-avatar { border-radius: 7px; box-shadow: var(--shadow-sm); margin-top: 2px; flex: 0 0 auto; }
 .chat-msg .chat-bubble {
   font-size: 14.5px; line-height: 1.65; max-width: 88%;
