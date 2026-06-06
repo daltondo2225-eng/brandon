@@ -78,7 +78,7 @@ export async function extractIdentityFromResume(resumeText: string): Promise<Ext
     'Engineer","company":"DoorDash","location":"Sunnyvale, CA"}. No prose, no markdown.';
   const resp = await client().messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 240,
+    max_tokens: 400,
     system,
     messages: [{ role: "user", content: resumeText.slice(0, 30000) }],
   });

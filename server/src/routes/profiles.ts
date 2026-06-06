@@ -11,7 +11,10 @@ import {
   updateProfile,
 } from "../db/profiles.js";
 // Identity extraction now goes through OpenAI (gpt-5.5) instead of Claude haiku.
-import { extractIdentityFromResume } from "../openai/client.js";
+// Résumé identity extraction uses Claude Haiku: cheap, fast, deterministic, and
+// (unlike GPT-5.x reasoning models) it won't spend the small token budget on
+// hidden reasoning and return empty content.
+import { extractIdentityFromResume } from "../claude/client.js";
 import { requireActive } from "../auth/guards.js";
 
 const ModelEnum = z.enum(SUPPORTED_MODELS);
