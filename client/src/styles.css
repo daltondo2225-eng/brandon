@@ -2391,3 +2391,53 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .msg-action svg { width: 16px; height: 16px; }     /* a bit larger */
 .msg-action:hover { background: var(--bg-hover); color: var(--text); }
+
+/* ============================================================================
+   FIX: user prompt collapsing to 1 char wide ("H"/"i" stacked). The flex item
+   shrank to min-content. Let the body/bubble size to content, capped at 70%.
+   ========================================================================== */
+.chat-msg.user .chat-msg-body {
+  max-width: 70%;
+  width: fit-content;        /* size to the text, not collapse to min */
+  align-items: flex-end;
+}
+.chat-msg.user .chat-bubble {
+  width: fit-content;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* Assistant message should take the full reading column, not shrink. */
+.chat-msg.assistant { flex: 1 1 auto; }
+.chat-msg.assistant .chat-msg-body { flex: 1 1 auto; max-width: 100%; min-width: 0; }
+
+/* Action icons: render as real, visible buttons (the dots = near-invisible). */
+.chat-msg-actions { opacity: 1; gap: 4px; }
+.msg-action {
+  color: var(--text-dim);
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid transparent;
+}
+.msg-action svg { width: 16px; height: 16px; display: block; }
+.msg-action:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border); }
+
+/* Action row should not be squeezed by a short bubble's fit-content width. */
+.chat-msg.user .chat-msg-body { align-items: flex-end; }
+.chat-msg-actions { flex: 0 0 auto; min-width: max-content; }
+.chat-msg.user .chat-msg-actions { align-self: flex-end; }
+
+/* ============================================================================
+   FINAL message layout (supersede the patches above): body is a right/left-
+   aligned column capped at 70% (user) / full (assistant); the BUBBLE sizes to
+   content, the action row sizes to its buttons — neither collapses.
+   ========================================================================== */
+.chat-msg.user .chat-msg-body {
+  width: auto; max-width: 70%;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.chat-msg.assistant .chat-msg-body {
+  width: 100%; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+}
+.chat-msg.user .chat-bubble { width: fit-content; max-width: 100%; white-space: pre-wrap; word-break: break-word; }
+.chat-msg-actions { width: auto; min-width: 0; opacity: 1; }
