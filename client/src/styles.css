@@ -2316,3 +2316,21 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .overlay-card.light .turn:not(:last-child) { border-bottom-color: rgba(0,0,0,0.08); }
 /* Scrollbars on the light card */
 .overlay-card.light ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.22); }
+
+/* ============================================================================
+   Overlay: tighter spacing (margins/padding were too roomy for a compact HUD).
+   ========================================================================== */
+.overlay-shell { gap: 6px; padding: 3px; }
+.overlay-card { padding: 8px 10px 9px; gap: 7px; border-radius: 12px; }
+.top-bar { gap: 6px; }
+.top-bar > .captions-view, .top-bar > .note-card { min-height: 54px; }
+.captions-view { padding: 5px 8px; min-height: 54px; }
+.note-card { min-height: 54px; }
+.note-card .note-input { padding: 5px 8px; }
+.input-area { padding: 6px 10px; min-height: 46px; flex-basis: 56px; }
+.response-area { padding: 6px 2px; gap: 10px; min-height: 110px; }
+.response-area .turn { gap: 3px; padding-bottom: 7px; }
+.response-area .bubble.user { padding: 6px 11px; margin-bottom: 3px; }
+.overlay-footer { gap: 8px; }
+/* Top pill: a hair more compact */
+.overlay-toppill { padding: 5px 9px; gap: 5px; }

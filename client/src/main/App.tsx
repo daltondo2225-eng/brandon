@@ -58,13 +58,13 @@ function MainApp({ currentUser, onLogout }: { currentUser: api.AuthUser; onLogou
   const [error, setError] = useState<string>("");
   const [theme, setTheme, toggleTheme] = useTheme();
 
-  // Detectable = visible in screen capture. On this Win11 GPU combo,
-  // setContentProtection(true) makes the overlay invisible to the user too —
-  // so default to detectable=TRUE (no content protection). User flips the
-  // toggle when they actually need stealth (e.g. mid-interview screen share).
+  // Detectable = visible in screen capture. Default UNDETECTABLE (content
+  // protection ON) — the whole point is to stay hidden during screen-share.
+  // If a particular Win11 GPU also hides the overlay from the user, they flip
+  // the toggle to Detectable in Settings.
   const [detectable, setDetectable] = useState<boolean>(() => {
     const saved = (() => { try { return localStorage.getItem(DETECTABLE_KEY); } catch { return null; } })();
-    if (saved === null) return true;
+    if (saved === null) return false;
     return saved === "true";
   });
 
