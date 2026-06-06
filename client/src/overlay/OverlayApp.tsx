@@ -5,6 +5,7 @@ import { bridge } from "../lib/bridge";
 import { Markdown } from "../lib/Markdown";
 import { fileToImage, imagesFromClipboard } from "../lib/image";
 import { BrandonMark } from "../lib/BrandonMark";
+import { useOverlayPrefs, prefsToCssVars, FONTS, THEMES, ACCENTS } from "./prefs";
 
 interface ParsedResponse {
   bullets: string[];
@@ -94,20 +95,13 @@ export function OverlayApp() {
    *  progress lines above the streaming response. Cleared at the start of every
    *  new chat trigger. */
   const [toolCalls, setToolCalls] = useState<Array<{ summary: string; ok: boolean }>>([]);
-  // Output font size for the response area. Persisted to localStorage so the
-  // user's preferred size carries across overlay sessions.
-  const [fontSize, setFontSize] = useState<number>(() => {
-    try {
-      const v = parseInt(localStorage.getItem("brandon.overlayFontSize") || "", 10);
-      if (Number.isFinite(v) && v >= 12 && v <= 32) return v;
-    } catch { /* localStorage may be unavailable */ }
-    return 18;
-  });
-  useEffect(() => {
-    try { localStorage.setItem("brandon.overlayFontSize", String(fontSize)); } catch { /* ignore */ }
-  }, [fontSize]);
+  // Overlay appearance prefs (font/size/theme/accent/opacity) — persisted +
+  // tuned live from the gear popover. fontSize kept as a derived shortcut.
+  const { prefs, update: updatePrefs, reset: resetPrefs } = useOverlayPrefs();
+  const fontSize = prefs.fontSize;
   const bumpFontSize = (delta: number) =>
-    setFontSize((v) => Math.max(12, Math.min(32, v + delta)));
+    updatePrefs({ fontSize: Math.max(12, Math.min(32, prefs.fontSize + delta)) });
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Listen for Ctrl+V paste anywhere in the overlay; if the clipboard has an
   // image, attach it as a pending image for the next chat.
@@ -539,6 +533,60 @@ export function OverlayApp() {
           disabled={fontSize >= 32}
           title={`Larger (currently ${fontSize}px)`}
         >A+</button>
+        <div className="ov-settings-wrap">
+          <button
+            className={`ov-gear${settingsOpen ? " active" : ""}`}
+            onClick={() => setSettingsOpen((v) => !v)}
+            title="Overlay appearance"
+          >{gearIcon}</button>
+          {settingsOpen && (
+            <div className="ov-settings" onMouseLeave={() => setSettingsOpen(false)}>
+              <div className="ov-row">
+                <span className="ov-label">Text size</span>
+                <div className="ov-size">
+                  <button onClick={() => bumpFontSize(-2)} disabled={fontSize <= 12}>A−</button>
+                  <span>{fontSize}</span>
+                  <button onClick={() => bumpFontSize(+2)} disabled={fontSize >= 32}>A+</button>
+                </div>
+              </div>
+              <div className="ov-row">
+                <span className="ov-label">Font</span>
+                <div className="ov-seg">
+                  {FONTS.map((f) => (
+                    <button key={f.id} className={prefs.font === f.id ? "active" : ""}
+                      onClick={() => updatePrefs({ font: f.id })}>{f.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="ov-row">
+                <span className="ov-label">Theme</span>
+                <div className="ov-seg">
+                  {THEMES.map((t) => (
+                    <button key={t.id} className={prefs.theme === t.id ? "active" : ""}
+                      onClick={() => updatePrefs({ theme: t.id })}>{t.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="ov-row">
+                <span className="ov-label">Accent</span>
+                <div className="ov-swatches">
+                  {ACCENTS.map((c) => (
+                    <button key={c} className={`ov-swatch${prefs.accent === c ? " active" : ""}`}
+                      style={{ background: c }} onClick={() => updatePrefs({ accent: c })}
+                      title={c} aria-label={`accent ${c}`} />
+                  ))}
+                </div>
+              </div>
+              <div className="ov-row">
+                <span className="ov-label">Opacity</span>
+                <input type="range" min={30} max={100} value={Math.round(prefs.opacity * 100)}
+                  onChange={(e) => updatePrefs({ opacity: Number(e.target.value) / 100 })} />
+                <span className="ov-val">{Math.round(prefs.opacity * 100)}%</span>
+              </div>
+              <button className="ov-reset" onClick={resetPrefs}>Reset to defaults</button>
+            </div>
+          )}
+        </div>
         <button className="end-btn" onClick={endInterview} title="End this interview and close the overlay">
           <span>End</span>
         </button>
@@ -549,7 +597,7 @@ export function OverlayApp() {
       </div>
 
       {!collapsed && (
-        <div className="overlay-card" style={{ ["--bubble-font-size" as never]: `${fontSize}px` }}>
+        <div className="overlay-card" style={prefsToCssVars(prefs) as Record<string, string>}>
           {/* Top bar: live captions on the left, input note-card on the right,
               equal halves, compact height. The answer stream rolls underneath. */}
           <div className="top-bar">
@@ -792,3 +840,4 @@ const sendIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><p
 const paperclipIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 7l-4.7 4.7a2 2 0 01-2.8-2.8L8.7 4.2a3 3 0 014.2 4.2L8 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 const stopIcon = (<svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/></svg>);
 const pencilIconOv = (<svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
+const gearIcon = (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>);

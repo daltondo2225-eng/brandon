@@ -1116,7 +1116,10 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   -webkit-app-region: drag;
   flex: 1;
   position: relative;
-  background: rgba(20, 20, 22, 0.78);
+  /* Theme + opacity driven by user prefs (prefs.ts → CSS vars). */
+  background: rgba(var(--ov-bg, 20, 20, 22), var(--ov-opacity, 0.82));
+  color: rgb(var(--ov-text, 245, 245, 247));
+  font-family: var(--ov-font, inherit);
   backdrop-filter: blur(18px);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
@@ -1124,6 +1127,14 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   display: flex; flex-direction: column; gap: 10px;
   overflow: hidden;
   min-height: 0;
+}
+/* Light theme needs darker chrome/borders for contrast. */
+.overlay-card { --ov-line: rgba(255,255,255,0.10); }
+.overlay-card .bubble.assistant { color: rgb(var(--ov-text, 245, 245, 247)); }
+.overlay-card .bubble.user {
+  background: color-mix(in srgb, var(--ov-accent, #1E7EF0) 22%, transparent);
+  border-color: color-mix(in srgb, var(--ov-accent, #1E7EF0) 45%, transparent);
+  color: rgb(var(--ov-text, 245, 245, 247));
 }
 
 /* Bottom-right resize grip (custom because frameless+transparent windows
@@ -2051,3 +2062,53 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 .response-area .bubble-edit-actions .primary { background: rgba(120, 200, 160, 0.55); }
 .response-area .bubble-edit-actions .primary:disabled { opacity: 0.5; }
+
+/* ---- Overlay appearance popover (gear in the top pill) ---- */
+.ov-settings-wrap { position: relative; -webkit-app-region: no-drag; display: inline-flex; }
+.ov-gear {
+  -webkit-app-region: no-drag;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 24px; border-radius: 6px;
+  background: transparent; border: none; color: rgba(255,255,255,0.85); cursor: pointer;
+}
+.ov-gear:hover, .ov-gear.active { background: rgba(255,255,255,0.14); color: #fff; }
+.ov-settings {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 50;
+  width: 248px; padding: 12px;
+  background: rgba(22, 22, 26, 0.97); backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; gap: 12px;
+  color: rgba(255,255,255,0.92); cursor: default;
+}
+.ov-row { display: flex; align-items: center; gap: 10px; }
+.ov-label { font-size: 12px; color: rgba(255,255,255,0.6); width: 62px; flex: 0 0 auto; }
+.ov-size { display: inline-flex; align-items: center; gap: 8px; }
+.ov-size button {
+  width: 26px; height: 22px; border-radius: 6px; border: none;
+  background: rgba(255,255,255,0.1); color: #fff; font-size: 12px; cursor: pointer;
+}
+.ov-size button:disabled { opacity: 0.4; cursor: not-allowed; }
+.ov-size span { font-size: 12px; width: 20px; text-align: center; color: rgba(255,255,255,0.8); }
+.ov-seg { display: inline-flex; gap: 4px; flex: 1; }
+.ov-seg button {
+  flex: 1; padding: 5px 0; border-radius: 6px; border: 1px solid transparent;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.8);
+  font-size: 11.5px; cursor: pointer;
+}
+.ov-seg button:hover { background: rgba(255,255,255,0.14); }
+.ov-seg button.active { background: rgba(255,255,255,0.2); color: #fff; border-color: rgba(255,255,255,0.25); }
+.ov-swatches { display: inline-flex; gap: 7px; flex: 1; }
+.ov-swatch {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; padding: 0;
+}
+.ov-swatch.active { border-color: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); }
+.ov-row input[type="range"] { flex: 1; accent-color: var(--ov-accent, #1E7EF0); }
+.ov-val { font-size: 11.5px; color: rgba(255,255,255,0.7); width: 34px; text-align: right; }
+.ov-reset {
+  margin-top: 2px; padding: 7px; border-radius: 7px; border: none;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);
+  font-size: 12px; cursor: pointer;
+}
+.ov-reset:hover { background: rgba(255,255,255,0.14); color: #fff; }
