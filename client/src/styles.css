@@ -2173,8 +2173,8 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 }
 
 /* ---- Chat thread: roomy reading typography ---- */
-.chat-inner { max-width: 768px; padding: 28px 24px 48px; }
-.chat-msg { margin: 0 0 26px; }
+.chat-inner { max-width: 768px; padding: 28px 24px 48px; gap: 10px; }
+.chat-msg { margin: 0; }
 .chat-msg .chat-bubble { font-size: 16px; line-height: 1.72; max-width: 100%; }
 
 /* User: soft neutral bubble (NOT bright blue), like ChatGPT. */
