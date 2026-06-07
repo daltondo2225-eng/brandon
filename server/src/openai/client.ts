@@ -31,6 +31,7 @@ export interface StreamInput {
   defaults?: { defaultInterviewBrief: string; defaultVoiceSample: string };
   /** Plain assistant mode — generic helper, no interview persona. */
   plain?: boolean;
+  live?: boolean;
   onText: (text: string) => void;
   onDone: (usage: ChatUsage) => void;
   /** Accepted but ignored — code tools are Anthropic-only in this version. */
@@ -54,7 +55,7 @@ function isRestrictedParamModel(model: string): boolean {
 export async function streamCompletion(input: StreamInput): Promise<void> {
   const built = buildPrompt(
     { ...input, sessionContext: input.sessionContext },
-    { extendedCache: config.extendedCache, plain: input.plain },
+    { extendedCache: config.extendedCache, plain: input.plain, live: input.live },
   );
 
   const systemText = built.system.map((b) => b.text).join("\n\n");

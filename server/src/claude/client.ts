@@ -41,6 +41,8 @@ export interface StreamInput {
   defaults?: { defaultInterviewBrief: string; defaultVoiceSample: string };
   /** Plain assistant mode — generic helper, no interview persona. */
   plain?: boolean;
+  /** Live overlay answer — emit a HEADLINE lead line for progressive disclosure. */
+  live?: boolean;
   onText: (text: string) => void;
   onDone: (usage: ChatUsage) => void;
   /**
@@ -225,7 +227,7 @@ export async function generateRecap(input: {
 export async function streamCompletion(input: StreamInput): Promise<void> {
   const built = buildPrompt(
     { ...input, sessionContext: input.sessionContext },
-    { extendedCache: config.extendedCache, plain: input.plain },
+    { extendedCache: config.extendedCache, plain: input.plain, live: input.live },
   );
 
   // Build a proper multi-turn message list: prior turns (verbatim) + the new user turn.

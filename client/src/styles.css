@@ -2449,3 +2449,18 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
 .msg-action { width: 32px; height: 32px; color: var(--text-dim); }
 .msg-action svg { width: 17px !important; height: 17px !important; display: block; }
 .msg-action:hover { color: var(--text); background: var(--bg-hover); }
+
+/* ---- Progressive disclosure: the instant "say this now" headline ---- */
+.response-area .answer-headline {
+  font-size: calc(var(--bubble-font-size, 18px) * 1.04);
+  font-weight: 650; line-height: 1.4;
+  color: rgb(var(--ov-text, 245, 245, 247));
+  padding: 8px 12px; margin-bottom: 6px;
+  border-left: 3px solid var(--ov-accent, #1E7EF0);
+  background: color-mix(in srgb, var(--ov-accent, #1E7EF0) 12%, transparent);
+  border-radius: 8px;
+}
+.overlay-card.light .response-area .answer-headline {
+  color: rgb(17,17,19);
+  background: rgba(30,126,240,0.10);
+}

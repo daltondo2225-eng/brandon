@@ -74,6 +74,7 @@ export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
         priorTurns: parsed.data.priorTurns ?? [],
         images: parsed.data.images,
         defaults,
+        live: true,   // overlay answers lead with a HEADLINE line
         sessionContext: activeSession
           ? { targetCompany: activeSession.targetCompany, jobDescription: activeSession.jobDescription }
           : undefined,

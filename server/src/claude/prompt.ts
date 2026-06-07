@@ -214,7 +214,17 @@ export interface BuiltPrompt {
   cacheVersion: string;
 }
 
-export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean; plain?: boolean }): BuiltPrompt {
+// Injected only for LIVE overlay answers (not practice chat): emit a one-line
+// spoken thesis first so the candidate can start talking in ~1s while the full
+// answer streams. The overlay parses this "HEADLINE:" line and renders it big.
+const HEADLINE_INSTRUCTION = `# Lead line (REQUIRED)
+Begin your reply with ONE line: "HEADLINE: <one spoken sentence>" — the single
+sentence the candidate can SAY IMMEDIATELY. It must be the actual answer/thesis
+in natural speech (not a label or topic), ≤22 words, no markdown. Then a blank
+line, then the full spoken answer. Example:
+HEADLINE: I'd shard by user ID and cache the hot keys with a write-through layer.`;
+
+export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean; plain?: boolean; live?: boolean }): BuiltPrompt {
   // Plain assistant mode: a normal helpful assistant, no interview persona, no
   // resume/transcript framing — the user's message goes straight through.
   if (opts.plain) {
@@ -328,11 +338,15 @@ export function buildPrompt(input: PromptInput, opts: { extendedCache: boolean; 
     "Produce the spoken script now.",
   ].filter(Boolean).join("\n");
 
+  // Live overlay answers lead with a HEADLINE line (appended to the dynamic,
+  // non-cached block so it never busts the prompt cache). Practice chat omits it.
+  const dynamicText = opts.live ? `${HEADLINE_INSTRUCTION}\n\n${dynamic}` : dynamic;
+
   return {
     system: [
       { type: "text", text: `${BASE_INSTRUCTIONS}\n\n${FORMAT_EXAMPLE}`, cache_control: ttlMeta },
       { type: "text", text: docsSection, cache_control: ttlMeta },
-      { type: "text", text: dynamic },
+      { type: "text", text: dynamicText },
     ],
     userMessage,
     cacheVersion: `${input.profile.id}:${input.profile.updatedAt}`,

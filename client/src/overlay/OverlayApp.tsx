@@ -8,6 +8,8 @@ import { BrandonMark } from "../lib/BrandonMark";
 import { useOverlayPrefs, prefsToCssVars, THEMES } from "./prefs";
 
 interface ParsedResponse {
+  /** The instant thesis line ("HEADLINE: ...") — say this first while the rest streams. */
+  headline: string;
   bullets: string[];
   script: string;
   raw: string;
@@ -26,8 +28,20 @@ const TRANSCRIPT_MAX_CHARS = 30_000;
 const TRANSCRIPT_KEEP_CHARS = 25_000;
 
 function parseResponse(raw: string): ParsedResponse {
-  const bulletsMatch = raw.match(/##\s*Bullets\s*([\s\S]*?)(?=^##\s|$)/im);
-  const scriptMatch = raw.match(/##\s*Script\s*([\s\S]*?)(?=^##\s|$)/im);
+  // Progressive disclosure: the model emits "HEADLINE: <one line>" first (streams
+  // in ~1s so you can start speaking), then the full answer. Pull the headline
+  // out and treat the rest as the body to read from.
+  let headline = "";
+  let body = raw;
+  // Streaming-safe: headline = everything after HEADLINE: up to the first newline
+  // (or end-of-string while it's still streaming); body = the rest after that.
+  const hMatch = raw.match(/^\s*HEADLINE:\s*([^\n]*)(\n[\s\S]*)?$/i);
+  if (hMatch) {
+    headline = (hMatch[1] ?? "").trim();
+    body = (hMatch[2] ?? "").trim();
+  }
+  const bulletsMatch = body.match(/##\s*Bullets\s*([\s\S]*?)(?=^##\s|$)/im);
+  const scriptMatch = body.match(/##\s*Script\s*([\s\S]*?)(?=^##\s|$)/im);
   const bullets = bulletsMatch
     ? bulletsMatch[1]
         .split(/\n/)
@@ -35,8 +49,8 @@ function parseResponse(raw: string): ParsedResponse {
         .filter((l) => l.startsWith("- ") || l.startsWith("* "))
         .map((l) => l.replace(/^[-*]\s+/, "").trim())
     : [];
-  const script = scriptMatch ? scriptMatch[1].trim() : "";
-  return { bullets, script, raw };
+  const script = scriptMatch ? scriptMatch[1].trim() : body;
+  return { headline, bullets, script, raw: body };
 }
 
 interface CaptionToken { text: string; start: number; isSpace: boolean; }
@@ -262,7 +276,7 @@ export function OverlayApp() {
     const controller = new AbortController();
     abortRef.current = controller;
     setError("");
-    setResponse({ bullets: [], script: "", raw: "" });
+    setResponse({ headline: "", bullets: [], script: "", raw: "" });
     setStreaming(true);
 
     const profile = activeProfile ?? (await refreshProfile());
@@ -369,7 +383,7 @@ export function OverlayApp() {
     const controller = new AbortController();
     abortRef.current = controller;
     setError("");
-    setResponse({ bullets: [], script: "", raw: "" });
+    setResponse({ headline: "", bullets: [], script: "", raw: "" });
     setToolCalls([]);
     setStreaming(true);
 
@@ -523,7 +537,8 @@ export function OverlayApp() {
 
   const responseScript = response?.script ?? "";
   const responseBullets = response?.bullets ?? [];
-  const hasResponse = !!(response && (responseScript || responseBullets.length || error));
+  const responseHeadline = response?.headline ?? "";
+  const hasResponse = !!(response && (responseHeadline || responseScript || responseBullets.length || error));
   const responseRaw = response?.raw ?? "";
 
   const canSend = !streaming && (markPos !== null || note.trim().length > 0 || pendingImages.length > 0);
@@ -705,9 +720,15 @@ export function OverlayApp() {
                     )}
                   </div>
                 )}
-                <div className="bubble assistant">
-                  <Markdown>{t.assistant}</Markdown>
-                </div>
+                {(() => {
+                  const p = parseResponse(t.assistant);
+                  return (
+                    <>
+                      {p.headline && <div className="answer-headline">{p.headline}</div>}
+                      <div className="bubble assistant"><Markdown>{p.raw || t.assistant}</Markdown></div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
 
@@ -723,6 +744,9 @@ export function OverlayApp() {
                       </div>
                     ))}
                   </div>
+                )}
+                {responseHeadline && (
+                  <div className="answer-headline">{responseHeadline}</div>
                 )}
                 {responseRaw && (
                   <div className="bubble assistant">
