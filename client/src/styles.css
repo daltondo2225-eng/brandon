@@ -1326,16 +1326,41 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
 }
 
-/* In the assistant bubble (dark glass), bg of inline code is lighter */
+/* In the assistant bubble (dark glass): make code clearly visible — stronger
+   inline chip, and a defined high-contrast block with an accent bar + brighter
+   text and a slightly larger font so it stands out from prose. */
 .response-area .bubble.assistant .md .md-inline-code,
 .response-area .bubble.assistant .md code:not(pre code) {
-  background: rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffd9a8;            /* warm tint so inline code pops against white prose */
+  border: 1px solid rgba(255,255,255,0.12);
 }
 .response-area .bubble.assistant .md pre,
 .response-area .bubble.assistant .md .md-code-block {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: 3px solid var(--ov-accent, #3D9BFF);
+  font-size: 13.5px;
+  line-height: 1.55;
 }
+.response-area .bubble.assistant .md pre,
+.response-area .bubble.assistant .md pre code,
+.response-area .bubble.assistant .md .md-code-block {
+  color: #f2f5f8;            /* bright code text */
+}
+/* Light overlay theme: code needs a light panel with dark text. */
+.overlay-card.light .response-area .md .md-inline-code,
+.overlay-card.light .response-area .md code:not(pre code) {
+  background: rgba(0,0,0,0.07); color: #b5430b; border-color: rgba(0,0,0,0.12);
+}
+.overlay-card.light .response-area .md pre,
+.overlay-card.light .response-area .md .md-code-block {
+  background: #f3f4f6; border-color: rgba(0,0,0,0.12);
+  border-left: 3px solid #1E7EF0;
+}
+.overlay-card.light .response-area .md pre,
+.overlay-card.light .response-area .md pre code,
+.overlay-card.light .response-area .md .md-code-block { color: #1a1b1f; }
 
 /* In the recap card (light bg) keep darker code blocks readable */
 .meeting-section.recap .recap-body .md pre,
