@@ -9,6 +9,7 @@ export const ANTHROPIC_MODELS = [
 ] as const;
 
 export const OPENAI_MODELS = [
+  "gpt-4o",
   "gpt-5.5",
 ] as const;
 

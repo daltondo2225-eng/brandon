@@ -1381,6 +1381,7 @@ function ProfileEditor({
             <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
           </optgroup>
           <optgroup label="OpenAI">
+            <option value="gpt-4o">GPT-4o</option>
             <option value="gpt-5.5">GPT-5.5</option>
           </optgroup>
           <optgroup label="Google">

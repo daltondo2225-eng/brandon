@@ -110,7 +110,7 @@ export function createProfile(input: CreateProfileInput, userId: string): Profil
     input.name,
     input.realtimePrompt ?? DEFAULT_REALTIME_PROMPT,
     input.notesTemplate ?? null,
-    input.model ?? "claude-opus-4-8",
+    input.model ?? "gpt-4o",
     now,
     now,
   );

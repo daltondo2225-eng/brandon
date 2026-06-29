@@ -17,6 +17,16 @@ let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
+// Desired screen-share visibility, owned by the main process so it's correct
+// from the overlay's very first show (not only after the renderer effect runs)
+// and survives hide/show. false = undetectable (content protection ON).
+let detectable = false;
+// Apply the current detectable state to the overlay's content protection.
+function applyContentProtection(): void {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.setContentProtection(!detectable);
+  }
+}
 
 function resourcePath(...parts: string[]): string {
   return isDev
@@ -134,18 +144,22 @@ function createOverlayWindow(): BrowserWindow {
   });
   win.setAlwaysOnTop(true, "screen-saver");
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  // setContentProtection(true) (WDA_EXCLUDEFROMCAPTURE) hides the window from
-  // screen-share — Brandon's "undetectable" feature. On some Win11 GPU/driver
-  // configs it also makes the window invisible to the user, defeating the
-  // whole tool. Start with it OFF; the user re-enables via the Detectable
-  // toggle (settings:set-detectable IPC) when they actually need stealth.
-  win.setContentProtection(false);
+  // setContentProtection(true) (WDA_EXCLUDEFROMCAPTURE on Windows /
+  // NSWindowSharingNone on macOS) hides the window from screen-share — Brandon's
+  // "undetectable" feature. Apply the main process's desired state immediately
+  // (default undetectable) so it's correct from the first show, not only after
+  // the renderer's effect runs.
+  win.setContentProtection(!detectable);
   // Overlay always captures mouse — needed so the user can drag the window from
   // the title pill / card body and grab the resize corner. Click-through isn't
   // worth the cost in usability for this small overlay.
 
+  // Re-apply on every show/restore/focus: content protection (and always-on-top)
+  // can get dropped when the OS hides/re-shows the window, which is exactly when
+  // screen-share leaks would happen.
   const reapply = () => {
     win.setAlwaysOnTop(true, "screen-saver");
+    win.setContentProtection(!detectable);
   };
   win.on("show", reapply);
   win.on("restore", reapply);
@@ -253,10 +267,11 @@ app.whenReady().then(async () => {
     if (mainWindow) mainWindow.hide();
   });
 
-  ipcMain.on("settings:set-detectable", (_e, detectable: boolean) => {
-    if (!overlayWindow) return;
-    // Detectable = visible in screen capture. When TRUE, disable content protection.
-    overlayWindow.setContentProtection(!detectable);
+  ipcMain.on("settings:set-detectable", (_e, value: boolean) => {
+    // Remember it in the main process so it's re-applied on every overlay
+    // show/restore/focus, even if the overlay isn't created yet.
+    detectable = value;
+    applyContentProtection();
   });
 
   // Resume conversation flow: main window sends a set of prior turns; we

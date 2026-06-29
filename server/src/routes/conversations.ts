@@ -20,7 +20,7 @@ import { isAllowedOrigin } from "../cors.js";
 // interview persona). A real profile id otherwise; we resolve the model below.
 const PLAIN = "__plain__";
 // Default raw model for the plain assistant (no persona).
-const PLAIN_MODEL = "claude-opus-4-8";
+const PLAIN_MODEL = "gpt-4o";
 
 export async function registerConversationRoutes(app: FastifyInstance): Promise<void> {
   app.get("/conversations", async (req) => ({ conversations: listConversations(req.user!.id) }));
